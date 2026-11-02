@@ -1,0 +1,15 @@
+# Client 1: a single-page receipt. Field names are the product's own;
+# dataset-specific labels are mapped to these names in evals/datasets/.
+document_type: receipt
+fields:
+  - name: lines
+    kind: list
+    item:
+      - {name: description, type: text, required: true}
+      - {name: quantity, type: integer, required: false}
+      - {name: amount, type: amount, required: true}
+  - {name: subtotal, type: amount, required: false}
+  - {name: service, type: amount, required: false}
+  - {name: tax, type: amount, required: false}
+  - {name: rounding, type: amount, required: false}
+  - {name: total, type: amount, required: true}

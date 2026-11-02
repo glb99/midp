@@ -48,6 +48,41 @@ def load(split: str):
     return dataset[split]
 
 
+def to_reference(row: dict) -> dict:
+    """Map one CORD row to the field names in configs/receipts.yaml.
+
+    CORD's labels keep the receipt's own wording (menu, sub_total, total).
+    Everything here is a rename or a parse; the product never sees CORD's
+    names. Fields CORD does not label come back as None.
+    """
+    import json
+
+    from midp.values import parse_amount, parse_quantity
+
+    parse = json.loads(row["ground_truth"])["gt_parse"]
+    menu = parse.get("menu") or []
+    if isinstance(menu, dict):  # CORD stores a single line as an object
+        menu = [menu]
+    sub_total = parse.get("sub_total") or {}
+    total = parse.get("total") or {}
+
+    return {
+        "lines": [
+            {
+                "description": item.get("nm"),
+                "quantity": parse_quantity(item.get("cnt")),
+                "amount": parse_amount(item.get("price")),
+            }
+            for item in menu
+        ],
+        "subtotal": parse_amount(sub_total.get("subtotal_price")),
+        "service": parse_amount(sub_total.get("service_price")),
+        "tax": parse_amount(sub_total.get("tax_price")),
+        "rounding": parse_amount(sub_total.get("etc")),
+        "total": parse_amount(total.get("total_price")),
+    }
+
+
 def freeze() -> None:
     """Write the dev and test id lists to evals/splits/.
 
