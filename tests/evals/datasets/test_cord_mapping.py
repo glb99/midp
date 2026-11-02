@@ -40,7 +40,7 @@ def test_mapping_renames_cord_labels_and_parses_numbers() -> None:
 
 def test_config_and_mapping_name_the_same_fields() -> None:
     config = yaml.safe_load(
-        (Path(__file__).parents[1] / "configs" / "receipts.yaml").read_text(encoding="utf-8")
+        (Path(__file__).parents[3] / "configs" / "receipts.yaml").read_text(encoding="utf-8")
     )
     config_names = {field["name"] for field in config["fields"]}
 
