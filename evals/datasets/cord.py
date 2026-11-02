@@ -9,8 +9,11 @@ Run by hand. Tests and CI never call this module's download path.
 from __future__ import annotations
 
 import argparse
+import functools
 import re
 from pathlib import Path
+
+from evals.metrics import UNLABELLED
 
 DATASET_ID = "naver-clova-ix/cord-v2"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -34,6 +37,13 @@ def download(revision: str) -> None:
         print(f"{name}: {len(split)} documents")
 
 
+def get_row(row_id: str) -> dict:
+    """Return the row for an id such as "train-00005"."""
+    split, _, index = row_id.rpartition("-")
+    return load(split)[int(index)]
+
+
+@functools.cache
 def load(split: str):
     """Return one split of the downloaded dataset. Never downloads."""
     if not REVISION_FILE.exists():
@@ -57,30 +67,89 @@ def to_reference(row: dict) -> dict:
     """
     import json
 
-    from midp.values import parse_amount, parse_quantity
+    from midp.values import parse_quantity
 
     parse = json.loads(row["ground_truth"])["gt_parse"]
     menu = parse.get("menu") or []
     if isinstance(menu, dict):  # CORD stores a single line as an object
         menu = [menu]
-    sub_total = parse.get("sub_total") or {}
-    total = parse.get("total") or {}
+    sub_total = _merge_blocks(parse.get("sub_total"))
+    total = _merge_blocks(parse.get("total"))
+
+    lines = [
+        {
+            "description": _as_text(item.get("nm")),
+            "quantity": _safe(parse_quantity, _as_text(item.get("cnt"))),
+            "amount": _amount(item.get("price")),
+        }
+        for item in menu
+    ]
+    # One unreadable line makes the whole line list unlabelled: we cannot
+    # tell which predicted lines are right without it.
+    if any(line["amount"] is UNLABELLED for line in lines):
+        lines = UNLABELLED
 
     return {
-        "lines": [
-            {
-                "description": item.get("nm"),
-                "quantity": parse_quantity(item.get("cnt")),
-                "amount": parse_amount(item.get("price")),
-            }
-            for item in menu
-        ],
-        "subtotal": parse_amount(sub_total.get("subtotal_price")),
-        "service": parse_amount(sub_total.get("service_price")),
-        "tax": parse_amount(sub_total.get("tax_price")),
-        "rounding": parse_amount(sub_total.get("etc")),
-        "total": parse_amount(total.get("total_price")),
+        "lines": lines,
+        "subtotal": _amount(sub_total.get("subtotal_price")),
+        "service": _amount(sub_total.get("service_price")),
+        "tax": _amount(sub_total.get("tax_price")),
+        "rounding": _amount(sub_total.get("etc")),
+        "total": _amount(total.get("total_price")),
     }
+
+
+def _safe(parse, value):
+    try:
+        return parse(value)
+    except ValueError:
+        return UNLABELLED
+
+
+def _amount(value: object):
+    """An amount label, None when the label is absent, or UNLABELLED.
+
+    A list whose values are all equal means the same amount was printed
+    twice (TOTAL and DPP on one receipt). A list with different values is
+    a breakdown, not an amount. Text that cannot be read is UNLABELLED too.
+    """
+    from midp.values import parse_amount
+
+    if isinstance(value, list):
+        distinct = {str(part).strip() for part in value if part not in (None, "")}
+        if len(distinct) != 1:
+            return UNLABELLED
+        value = distinct.pop()
+    return _safe(parse_amount, value)
+
+
+def _merge_blocks(value: object) -> dict:
+    """One label block, or a list of them (one receipt has two sub_total blocks).
+
+    The first block wins when two blocks give the same field. That one
+    receipt is ambiguous, and this rule is a choice, not a fact.
+    """
+    if not value:
+        return {}
+    blocks = value if isinstance(value, list) else [value]
+    merged: dict = {}
+    for block in blocks:
+        for key, field in block.items():
+            merged.setdefault(key, field)
+    return merged
+
+
+def _as_text(value: object) -> str | None:
+    """CORD sometimes splits one label into parts, e.g. ["-", "Gyro Platter"].
+
+    Join the parts with spaces. For a quantity, the caller keeps only the
+    numeric part, so a stray word in the list is dropped there instead.
+    """
+    if isinstance(value, list):
+        parts = [str(part) for part in value if part not in (None, "")]
+        numeric = [part for part in parts if part.strip().isdigit()]
+        return numeric[0] if numeric else " ".join(parts) or None
+    return value
 
 
 def freeze() -> None:

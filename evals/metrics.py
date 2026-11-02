@@ -15,6 +15,16 @@ from dataclasses import dataclass
 from typing import Any
 
 
+class _Unlabelled:
+    """Marks a reference field that could not be read. It is not scored."""
+
+    def __repr__(self) -> str:
+        return "UNLABELLED"
+
+
+UNLABELLED = _Unlabelled()
+
+
 @dataclass(frozen=True)
 class Score:
     tp: int
@@ -76,9 +86,14 @@ def score_lines(predicted: list[dict], reference: list[dict]) -> Score:
 
 
 def score_document(predicted: dict, reference: dict) -> dict[str, Score]:
-    scores = {"lines": score_lines(predicted.get("lines") or [], reference.get("lines") or [])}
+    """Score every field whose reference is readable. Unlabelled fields are skipped."""
+    scores: dict[str, Score] = {}
     for field, value in reference.items():
-        if field != "lines":
+        if value is UNLABELLED:
+            continue
+        if field == "lines":
+            scores[field] = score_lines(predicted.get("lines") or [], value)
+        else:
             scores[field] = score_scalar(predicted.get(field), value)
     return scores
 

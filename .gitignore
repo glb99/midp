@@ -11,3 +11,5 @@ wheels/
 
 # Downloaded datasets (see evals/datasets)
 data/
+runs/
+scratch/
