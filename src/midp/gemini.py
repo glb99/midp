@@ -7,6 +7,7 @@ at the project root. It is never written into code or logs.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections import Counter
 
@@ -28,6 +29,7 @@ def gemini_model(model: str = DEFAULT_MODEL):
         raise RuntimeError("GEMINI_API_KEY is not set (environment or .env)")
     client = genai.Client(api_key=api_key)
     usage: Counter[str] = Counter()
+    lock = threading.Lock()
 
     def call(image: bytes, prompt: str) -> str:
         started = time.perf_counter()
@@ -42,13 +44,14 @@ def gemini_model(model: str = DEFAULT_MODEL):
                 temperature=0,
             ),
         )
-        usage["calls"] += 1
-        usage["seconds"] += round(time.perf_counter() - started, 3)
         meta = response.usage_metadata
-        if meta is not None:
-            usage["prompt_tokens"] += meta.prompt_token_count or 0
-            usage["output_tokens"] += meta.candidates_token_count or 0
-            usage["thinking_tokens"] += meta.thoughts_token_count or 0
+        with lock:  # calls run in parallel; the totals must not race
+            usage["calls"] += 1
+            usage["seconds"] += round(time.perf_counter() - started, 3)
+            if meta is not None:
+                usage["prompt_tokens"] += meta.prompt_token_count or 0
+                usage["output_tokens"] += meta.candidates_token_count or 0
+                usage["thinking_tokens"] += meta.thoughts_token_count or 0
         return response.text or ""
 
     call.usage = usage  # running totals, read by evals.run

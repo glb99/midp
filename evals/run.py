@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SPLIT_FILE = REPO_ROOT / "evals" / "splits" / "cord_dev.txt"
 CONFIG_FILE = REPO_ROOT / "configs" / "receipts.yaml"
 RUNS_DIR = REPO_ROOT / "runs"
+BATCH_SIZE = 64
 
 
 def read_ids(path: Path) -> list[str]:
@@ -49,6 +51,7 @@ def main() -> None:
     parser.add_argument("--predictor", default="empty", choices=["empty", "gemini"])
     parser.add_argument("--model", default=None, help="model name, e.g. gemini-3.8-flash-lite")
     parser.add_argument("--limit", type=int, default=None, help="score only the first N documents")
+    parser.add_argument("--workers", type=int, default=8, help="documents predicted at once")
     args = parser.parse_args()
 
     predictor, model = build_predictor(args.predictor, args.model)
@@ -58,12 +61,18 @@ def main() -> None:
 
     per_document = []
     unlabelled: Counter[str] = Counter()
-    for row_id in ids:
-        row = get_row(row_id)
-        predicted = predictor.predict(row["image"])
-        reference = to_reference(row)
-        unlabelled.update(field for field, value in reference.items() if value is UNLABELLED)
-        per_document.append(score_document(predicted, reference))
+    # Documents are loaded and predicted in batches: images are large, and
+    # holding the whole split in memory is not needed.
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        for start in range(0, len(ids), BATCH_SIZE):
+            batch = [get_row(row_id) for row_id in ids[start : start + BATCH_SIZE]]
+            predictions = pool.map(lambda row: predictor.predict(row["image"]), batch)
+            for row, predicted in zip(batch, predictions):
+                reference = to_reference(row)
+                unlabelled.update(
+                    field for field, value in reference.items() if value is UNLABELLED
+                )
+                per_document.append(score_document(predicted, reference))
     totals = aggregate(per_document)
 
     print(f"predictor: {predictor.name}, split: dev, documents: {len(ids)}\n")
