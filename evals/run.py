@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from evals.datasets.cord import get_row, to_reference
+from evals.datasets.cord import get_row, load, to_reference
 from evals.metrics import UNLABELLED, aggregate, score_document
 from midp.config import field_names, load_config
 from midp.gemini import gemini_model
@@ -25,11 +25,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SPLIT_FILE = REPO_ROOT / "evals" / "splits" / "cord_dev.txt"
 CONFIG_FILE = REPO_ROOT / "configs" / "receipts.yaml"
 RUNS_DIR = REPO_ROOT / "runs"
-BATCH_SIZE = 64
 
 
 def read_ids(path: Path) -> list[str]:
     return [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def warm_up_splits(ids: list[str]) -> None:
+    """Open each split once, before the threads start, so they do not race to load it."""
+    for split in {row_id.rpartition("-")[0] for row_id in ids}:
+        load(split)
 
 
 def fmt(value: float | None) -> str:
@@ -68,18 +73,19 @@ def main() -> None:
     per_document = []
     unlabelled: Counter[str] = Counter()
     started = time.perf_counter()
-    # Documents are loaded and predicted in batches: images are large, and
-    # holding the whole split in memory is not needed.
+    # Each worker loads, decodes and predicts its own document, so the image
+    # lives only in that worker. Only the small prediction and reference
+    # come back to the main thread for scoring.
+    warm_up_splits(ids)
+
+    def predict_one(row_id: str) -> tuple[dict, dict]:
+        row = get_row(row_id)
+        return predictor.predict(row["image"]), to_reference(row)
+
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for start in range(0, len(ids), BATCH_SIZE):
-            batch = [get_row(row_id) for row_id in ids[start : start + BATCH_SIZE]]
-            predictions = pool.map(lambda row: predictor.predict(row["image"]), batch)
-            for row, predicted in zip(batch, predictions):
-                reference = to_reference(row)
-                unlabelled.update(
-                    field for field, value in reference.items() if value is UNLABELLED
-                )
-                per_document.append(score_document(predicted, reference))
+        for predicted, reference in pool.map(predict_one, ids):
+            unlabelled.update(field for field, value in reference.items() if value is UNLABELLED)
+            per_document.append(score_document(predicted, reference))
     totals = aggregate(per_document)
     elapsed = round(time.perf_counter() - started, 2)
 

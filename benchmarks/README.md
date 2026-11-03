@@ -9,3 +9,4 @@ Command: `uv run python -m evals.run --predictor fake --latency 2.0 --limit 60`
 | Date       | Change                                   | Workers | Runs (s)            | Median (s) |
 |------------|------------------------------------------|---------|---------------------|------------|
 | 2026-11-03 | Baseline: batches of 64, load in main    | 8       | 20.38, 20.54, 20.35 | 20.38      |
+| 2026-11-03 | Load and decode inside each worker       | 8       | 19.09, 18.72, 18.68 | 18.72      |
