@@ -62,7 +62,7 @@ def main() -> None:
     parser.add_argument("--latency", type=float, default=None, help="seconds per call (required with --predictor fake)")
     parser.add_argument("--model", default=None, help="model name, e.g. gemini-3.8-flash-lite")
     parser.add_argument("--limit", type=int, default=None, help="score only the first N documents")
-    parser.add_argument("--workers", type=int, default=8, help="documents predicted at once")
+    parser.add_argument("--workers", type=int, default=16, help="documents predicted at once")
     args = parser.parse_args()
 
     predictor, model = build_predictor(args.predictor, args.model, args.latency)
