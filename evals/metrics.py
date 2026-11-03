@@ -64,6 +64,23 @@ def _name(text: str | None) -> str:
     return " ".join((text or "").lower().split())
 
 
+def _same_item(reference: str | None, predicted: str | None) -> bool:
+    """Same name, or one name contains the other as whole words.
+
+    The shorter name must have at least two words, so a single word such
+    as "Tahu" cannot match a longer line by accident. Callers also compare
+    amounts, which is what keeps "Ice Tea" and "Ice Tea Tawar" apart when
+    their prices differ.
+    """
+    a, b = _name(reference), _name(predicted)
+    if a == b:
+        return True
+    shorter, longer = sorted((a, b), key=len)
+    if len(shorter.split()) < 2:
+        return False
+    return f" {shorter} " in f" {longer} "
+
+
 def score_lines(predicted: list[dict], reference: list[dict]) -> Score:
     unmatched = list(reference)
     tp = fp = 0
@@ -72,7 +89,7 @@ def score_lines(predicted: list[dict], reference: list[dict]) -> Score:
             (
                 ref
                 for ref in unmatched
-                if _name(ref["description"]) == _name(line["description"])
+                if _same_item(ref["description"], line["description"])
                 and ref["amount"] == line["amount"]
             ),
             None,

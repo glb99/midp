@@ -7,19 +7,19 @@ at the project root. It is never written into code or logs.
 from __future__ import annotations
 
 import os
+import time
+from collections import Counter
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-from midp.predictors import ModelCall
-
 # TODO: move to setting argument? And evaluate ither models (3.5 flash lite?)
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
 
 # TODO: is it neccessary to be a class?
-def gemini_model(model: str = DEFAULT_MODEL) -> ModelCall:
+def gemini_model(model: str = DEFAULT_MODEL):
     load_dotenv()
     # TODO: move to setting argument?
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -27,8 +27,10 @@ def gemini_model(model: str = DEFAULT_MODEL) -> ModelCall:
         # TODO: custom model error like in bacteria?
         raise RuntimeError("GEMINI_API_KEY is not set (environment or .env)")
     client = genai.Client(api_key=api_key)
+    usage: Counter[str] = Counter()
 
     def call(image: bytes, prompt: str) -> str:
+        started = time.perf_counter()
         response = client.models.generate_content(
             model=model,
             contents=[
@@ -40,6 +42,15 @@ def gemini_model(model: str = DEFAULT_MODEL) -> ModelCall:
                 temperature=0,
             ),
         )
+        usage["calls"] += 1
+        usage["seconds"] += round(time.perf_counter() - started, 3)
+        meta = response.usage_metadata
+        if meta is not None:
+            usage["prompt_tokens"] += meta.prompt_token_count or 0
+            usage["output_tokens"] += meta.candidates_token_count or 0
+            usage["thinking_tokens"] += meta.thoughts_token_count or 0
         return response.text or ""
 
+    call.usage = usage  # running totals, read by evals.run
+    call.model = model  # name recorded with each run
     return call
