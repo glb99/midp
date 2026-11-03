@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -37,6 +38,23 @@ class EmptyPredictor:
             "rounding": None,
             "total": None,
         }
+
+
+class FakePredictor:
+    """Waits a fixed time and predicts nothing, like a network call of known length.
+
+    Used to measure the script itself: with the latency fixed, any change in
+    run time comes from our code, not from the model or the network.
+    """
+
+    name = "fake"
+
+    def __init__(self, latency: float) -> None:
+        self._latency = latency
+
+    def predict(self, image: Any) -> dict:
+        time.sleep(self._latency)  # releases the GIL, like waiting for a response
+        return EmptyPredictor().predict(image)
 
 
 def build_prompt(fields: list[str]) -> str:

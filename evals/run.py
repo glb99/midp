@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -18,7 +19,7 @@ from evals.datasets.cord import get_row, to_reference
 from evals.metrics import UNLABELLED, aggregate, score_document
 from midp.config import field_names, load_config
 from midp.gemini import gemini_model
-from midp.predictors import EmptyPredictor, MultimodalPredictor
+from midp.predictors import EmptyPredictor, FakePredictor, MultimodalPredictor
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPLIT_FILE = REPO_ROOT / "evals" / "splits" / "cord_dev.txt"
@@ -35,10 +36,14 @@ def fmt(value: float | None) -> str:
     return "  -  " if value is None else f"{value:.3f}"
 
 
-def build_predictor(name: str, model_name: str | None):
+def build_predictor(name: str, model_name: str | None, latency: float | None):
     """Return the predictor and, for Gemini, the model call with its usage totals."""
     if name == "empty":
         return EmptyPredictor(), None
+    if name == "fake":
+        if latency is None:
+            raise SystemExit("--latency is required with --predictor fake")
+        return FakePredictor(latency), None
     if name == "gemini":
         fields = field_names(load_config(CONFIG_FILE))
         model = gemini_model(model_name) if model_name else gemini_model()
@@ -48,19 +53,21 @@ def build_predictor(name: str, model_name: str | None):
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="evals.run")
-    parser.add_argument("--predictor", default="empty", choices=["empty", "gemini"])
+    parser.add_argument("--predictor", default="empty", choices=["empty", "fake", "gemini"])
+    parser.add_argument("--latency", type=float, default=None, help="seconds per call (required with --predictor fake)")
     parser.add_argument("--model", default=None, help="model name, e.g. gemini-3.8-flash-lite")
     parser.add_argument("--limit", type=int, default=None, help="score only the first N documents")
     parser.add_argument("--workers", type=int, default=8, help="documents predicted at once")
     args = parser.parse_args()
 
-    predictor, model = build_predictor(args.predictor, args.model)
+    predictor, model = build_predictor(args.predictor, args.model, args.latency)
     ids = read_ids(SPLIT_FILE)
     if args.limit is not None:
         ids = ids[: args.limit]
 
     per_document = []
     unlabelled: Counter[str] = Counter()
+    started = time.perf_counter()
     # Documents are loaded and predicted in batches: images are large, and
     # holding the whole split in memory is not needed.
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -74,8 +81,9 @@ def main() -> None:
                 )
                 per_document.append(score_document(predicted, reference))
     totals = aggregate(per_document)
+    elapsed = round(time.perf_counter() - started, 2)
 
-    print(f"predictor: {predictor.name}, split: dev, documents: {len(ids)}\n")
+    print(f"predictor: {predictor.name}, split: dev, documents: {len(ids)}, elapsed: {elapsed} s\n")
     print(f"{'field':<10}{'tp':>6}{'fp':>6}{'fn':>6}  {'precision':>9}  {'recall':>6}  {'f1':>6}")
     for field, score in totals.items():
         print(
@@ -95,6 +103,9 @@ def main() -> None:
         "model": args.model or (model.model if model else None),
         "split": "dev",
         "documents": len(ids),
+        "workers": args.workers,
+        "latency": args.latency if args.predictor == "fake" else None,
+        "elapsed_seconds": elapsed,
         "fields": {
             field: {
                 "tp": s.tp,
