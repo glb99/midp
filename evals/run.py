@@ -7,6 +7,7 @@ Results are also saved to runs/ as JSON, so runs can be compared later.
 
 from __future__ import annotations
 
+import argparse
 import json
 from collections import Counter
 from datetime import datetime
@@ -14,10 +15,13 @@ from pathlib import Path
 
 from evals.datasets.cord import get_row, to_reference
 from evals.metrics import UNLABELLED, aggregate, score_document
-from midp.predictors import EmptyPredictor
+from midp.config import field_names, load_config
+from midp.gemini import gemini_model
+from midp.predictors import EmptyPredictor, MultimodalPredictor
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPLIT_FILE = REPO_ROOT / "evals" / "splits" / "cord_dev.txt"
+CONFIG_FILE = REPO_ROOT / "configs" / "receipts.yaml"
 RUNS_DIR = REPO_ROOT / "runs"
 
 
@@ -29,9 +33,25 @@ def fmt(value: float | None) -> str:
     return "  -  " if value is None else f"{value:.3f}"
 
 
+def build_predictor(name: str):
+    if name == "empty":
+        return EmptyPredictor()
+    if name == "gemini":
+        fields = field_names(load_config(CONFIG_FILE))
+        return MultimodalPredictor(model=gemini_model(), fields=fields)
+    raise SystemExit(f"unknown predictor: {name}")
+
+
 def main() -> None:
-    predictor = EmptyPredictor()
+    parser = argparse.ArgumentParser(prog="evals.run")
+    parser.add_argument("--predictor", default="empty", choices=["empty", "gemini"])
+    parser.add_argument("--limit", type=int, default=None, help="score only the first N documents")
+    args = parser.parse_args()
+
+    predictor = build_predictor(args.predictor)
     ids = read_ids(SPLIT_FILE)
+    if args.limit is not None:
+        ids = ids[: args.limit]
 
     per_document = []
     unlabelled: Counter[str] = Counter()

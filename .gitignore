@@ -13,3 +13,6 @@ wheels/
 data/
 runs/
 scratch/
+
+# Secrets
+.env
