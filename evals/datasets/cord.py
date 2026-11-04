@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import functools
 import re
+from decimal import Decimal
 from pathlib import Path
 
 from evals.metrics import UNLABELLED
@@ -76,14 +77,20 @@ def to_reference(row: dict) -> dict:
     sub_total = _merge_blocks(parse.get("sub_total"))
     total = _merge_blocks(parse.get("total"))
 
-    lines = [
-        {
-            "description": _as_text(item.get("nm")),
-            "quantity": _safe(parse_quantity, _as_text(item.get("cnt"))),
-            "amount": _amount(item.get("price")),
-        }
-        for item in menu
-    ]
+    lines = []
+    discounts = []
+    for item in menu:
+        amount = _amount(item.get("price"))
+        if amount is not None and amount is not UNLABELLED and amount < 0:
+            discounts.append(amount)  # a discount is an adjustment, not a product
+            continue
+        lines.append(
+            {
+                "description": _as_text(item.get("nm")),
+                "quantity": _safe(parse_quantity, _as_text(item.get("cnt"))),
+                "amount": amount,
+            }
+        )
     # One unreadable line makes the whole line list unlabelled: we cannot
     # tell which predicted lines are right without it.
     if any(line["amount"] is UNLABELLED for line in lines):
@@ -96,6 +103,7 @@ def to_reference(row: dict) -> dict:
         "tax": _amount(sub_total.get("tax_price")),
         "rounding": _amount(sub_total.get("etc")),
         "total": _amount(total.get("total_price")),
+        "discount": _discount(sub_total.get("discount_price"), discounts),
     }
 
 
@@ -121,6 +129,25 @@ def _amount(value: object):
             return UNLABELLED
         value = distinct.pop()
     return _safe(parse_amount, value)
+
+
+def _discount(label: object, negative_menu_items: list) -> Decimal | None:
+    """Total discount as a negative number, or None if the receipt has none.
+
+    CORD writes the discount in sub_total as a positive number (its
+    "discount_price"); some receipts list it as a negative menu item instead.
+    Both count, and the result is always negative.
+    """
+    total = Decimal(0)
+    found = False
+    amount = _amount(label)
+    if amount is not None and amount is not UNLABELLED:
+        total -= amount
+        found = True
+    for item in negative_menu_items:
+        total += item
+        found = True
+    return total if found else None
 
 
 def _merge_blocks(value: object) -> dict:

@@ -11,7 +11,9 @@ precision.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any
 
 
@@ -61,7 +63,14 @@ def score_scalar(predicted: Any, reference: Any) -> Score:
 
 
 def _name(text: str | None) -> str:
-    return " ".join((text or "").lower().split())
+    """Lowercase, without a leading item code and without punctuation.
+
+    "1069-ROTI KEJU" and "ROTI KEJU" are the same item; so are "- TICKET CP"
+    and "TICKET CP". Only the letters and digits of the name are compared.
+    """
+    cleaned = re.sub(r"^\s*\d+\s*[-.]\s*", "", text or "")
+    cleaned = re.sub(r"[^0-9a-zA-Z]+", " ", cleaned)
+    return " ".join(cleaned.lower().split())
 
 
 def _same_item(reference: str | None, predicted: str | None) -> bool:
@@ -74,6 +83,8 @@ def _same_item(reference: str | None, predicted: str | None) -> bool:
     """
     a, b = _name(reference), _name(predicted)
     if a == b:
+        return True
+    if SequenceMatcher(None, a, b).ratio() >= 0.85:  # typos such as CUSTAFD for CUSTARD
         return True
     shorter, longer = sorted((a, b), key=len)
     if len(shorter.split()) < 2:

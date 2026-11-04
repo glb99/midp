@@ -63,7 +63,8 @@ def build_prompt(fields: list[str]) -> str:
         "Read this receipt. Return only a JSON object with these keys: "
         + ", ".join(fields)
         + ". 'lines' is a list of objects with 'description', 'quantity' and "
-        "'amount'. Amounts are whole numbers without separators or currency. "
+        "'amount'. Discounts are not lines: report their total as a negative 'discount'. "
+        "Amounts are whole numbers without separators or currency. "
         "Use null for any value that is not on the receipt."
     )
 

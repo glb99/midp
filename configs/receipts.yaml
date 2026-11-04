@@ -12,4 +12,5 @@ fields:
   - {name: service, type: amount, required: false}
   - {name: tax, type: amount, required: false}
   - {name: rounding, type: amount, required: false}
+  - {name: discount, type: amount, required: false}
   - {name: total, type: amount, required: true}
