@@ -71,3 +71,28 @@ def test_config_is_found_whatever_the_working_directory(tmp_path, monkeypatch) -
     monkeypatch.chdir(tmp_path)
 
     assert CONFIG_FILE.is_file()
+
+
+def test_a_correction_is_kept_apart_from_the_original_answer(client: TestClient) -> None:
+    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+
+    corrected = client.post(f"/receipts/{created['id']}/corrections", json={"total": 61800})
+    body = client.get(f"/receipts/{created['id']}").json()
+
+    assert corrected.status_code == 200
+    assert body["result"] == created["result"]
+    assert body["correction"] == {"total": 61800}
+
+
+def test_a_later_correction_replaces_the_one_shown(client: TestClient) -> None:
+    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+    client.post(f"/receipts/{created['id']}/corrections", json={"total": 1})
+    client.post(f"/receipts/{created['id']}/corrections", json={"total": 2})
+
+    assert client.get(f"/receipts/{created['id']}").json()["correction"] == {"total": 2}
+
+
+def test_correcting_an_unknown_receipt_is_not_found(client: TestClient) -> None:
+    response = client.post("/receipts/does-not-exist/corrections", json={"total": 1})
+
+    assert response.status_code == 404

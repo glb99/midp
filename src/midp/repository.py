@@ -1,8 +1,9 @@
-"""SQLite repository for receipts: the image as uploaded, and what the model returned.
+"""SQLite repository for receipts: the image as uploaded, what the model returned,
+and any human corrections.
 
-One table, one row per receipt. The result is kept as JSON text so the
-stored answer is exactly what the model produced, even if the field
-configuration changes later.
+Two tables. `receipts` keeps one row per receipt and never changes after
+it is saved. `corrections` keeps one row per correction, so the history
+is kept. Both are created on start-up, so there are no migrations yet.
 """
 
 from __future__ import annotations
@@ -24,7 +25,13 @@ CREATE TABLE IF NOT EXISTS receipts (
     content_type TEXT NOT NULL,
     image        BLOB NOT NULL,
     result       TEXT NOT NULL
-)
+);
+CREATE TABLE IF NOT EXISTS corrections (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    receipt_id  TEXT NOT NULL REFERENCES receipts(id),
+    created_at  TEXT NOT NULL,
+    fields      TEXT NOT NULL
+);
 """
 
 
@@ -35,6 +42,7 @@ class StoredReceipt:
     model: str
     seconds: float
     result: dict
+    correction: dict | None = None
 
 
 class ReceiptRepository:
@@ -42,7 +50,7 @@ class ReceiptRepository:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._path = path
         with self._connect() as db:
-            db.execute(SCHEMA)
+            db.executescript(SCHEMA)
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self._path)
@@ -59,12 +67,35 @@ class ReceiptRepository:
             )
         return receipt_id
 
+    def exists(self, receipt_id: str) -> bool:
+        with self._connect() as db:
+            return db.execute("SELECT 1 FROM receipts WHERE id = ?", (receipt_id,)).fetchone() is not None
+
+    def add_correction(self, receipt_id: str, fields: dict[str, Any]) -> None:
+        created_at = datetime.now(UTC).isoformat(timespec="seconds")
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO corrections (receipt_id, created_at, fields) VALUES (?, ?, ?)",
+                (receipt_id, created_at, json.dumps(fields, ensure_ascii=False, default=str)),
+            )
+
     def get(self, receipt_id: str) -> StoredReceipt | None:
         with self._connect() as db:
             row = db.execute(
                 "SELECT id, created_at, model, seconds, result FROM receipts WHERE id = ?",
                 (receipt_id,),
             ).fetchone()
-        if row is None:
-            return None
-        return StoredReceipt(id=row[0], created_at=row[1], model=row[2], seconds=row[3], result=json.loads(row[4]))
+            if row is None:
+                return None
+            correction = db.execute(
+                "SELECT fields FROM corrections WHERE receipt_id = ? ORDER BY id DESC LIMIT 1",
+                (receipt_id,),
+            ).fetchone()
+        return StoredReceipt(
+            id=row[0],
+            created_at=row[1],
+            model=row[2],
+            seconds=row[3],
+            result=json.loads(row[4]),
+            correction=json.loads(correction[0]) if correction else None,
+        )

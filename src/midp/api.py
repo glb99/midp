@@ -3,7 +3,8 @@
     uv run uvicorn midp.api:app --reload
 
 Each extraction is stored in SQLite under data/, with the image as uploaded
-and the model's answer. Nothing is corrected yet.
+and the model's answer. Reviewers can add corrections, which are kept apart
+from the original answer.
 """
 
 from __future__ import annotations
@@ -93,4 +94,17 @@ def read_receipt(receipt_id: str, repository: Annotated[ReceiptRepository, Depen
         "model": receipt.model,
         "seconds": receipt.seconds,
         "result": receipt.result,
+        "correction": receipt.correction,
     }
+
+
+@app.post("/receipts/{receipt_id}/corrections")
+def add_correction(
+    receipt_id: str,
+    fields: dict[str, Any],
+    repository: Annotated[ReceiptRepository, Depends(get_repository)],
+) -> dict:
+    if not repository.exists(receipt_id):
+        raise HTTPException(status_code=404, detail="no receipt with that id")
+    repository.add_correction(receipt_id, fields)
+    return {"id": receipt_id, "correction": fields}
