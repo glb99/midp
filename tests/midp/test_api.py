@@ -81,7 +81,9 @@ def test_a_correction_is_kept_apart_from_the_original_answer(client: TestClient)
 
     assert corrected.status_code == 200
     assert body["result"] == created["result"]
-    assert body["correction"] == {"total": 61800}
+    assert body["corrections"] == [{"total": 61800}]
+    assert body["final"]["total"] == 61800
+    assert body["final"]["lines"] == created["result"]["lines"]
 
 
 def test_a_later_correction_replaces_the_one_shown(client: TestClient) -> None:
@@ -89,7 +91,9 @@ def test_a_later_correction_replaces_the_one_shown(client: TestClient) -> None:
     client.post(f"/receipts/{created['id']}/corrections", json={"total": 1})
     client.post(f"/receipts/{created['id']}/corrections", json={"total": 2})
 
-    assert client.get(f"/receipts/{created['id']}").json()["correction"] == {"total": 2}
+    body = client.get(f"/receipts/{created['id']}").json()
+    assert body["corrections"] == [{"total": 1}, {"total": 2}]
+    assert body["final"]["total"] == 2
 
 
 def test_correcting_an_unknown_receipt_is_not_found(client: TestClient) -> None:

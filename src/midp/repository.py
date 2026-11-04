@@ -42,7 +42,7 @@ class StoredReceipt:
     model: str
     seconds: float
     result: dict
-    correction: dict | None = None
+    corrections: list[dict]
 
 
 class ReceiptRepository:
@@ -87,15 +87,27 @@ class ReceiptRepository:
             ).fetchone()
             if row is None:
                 return None
-            correction = db.execute(
-                "SELECT fields FROM corrections WHERE receipt_id = ? ORDER BY id DESC LIMIT 1",
+            corrections = db.execute(
+                "SELECT fields FROM corrections WHERE receipt_id = ? ORDER BY id",
                 (receipt_id,),
-            ).fetchone()
+            ).fetchall()
         return StoredReceipt(
             id=row[0],
             created_at=row[1],
             model=row[2],
             seconds=row[3],
             result=json.loads(row[4]),
-            correction=json.loads(correction[0]) if correction else None,
+            corrections=[json.loads(c[0]) for c in corrections],
         )
+
+
+def apply_corrections(result: dict, corrections: list[dict]) -> dict:
+    """The model's answer with every correction applied in order.
+
+    A correction changes only the fields it names; a later correction to the
+    same field wins. The stored answer and the corrections are not changed.
+    """
+    final = dict(result)
+    for correction in corrections:
+        final.update(correction)
+    return final

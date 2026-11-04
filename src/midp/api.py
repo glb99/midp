@@ -20,7 +20,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
 from midp.config import field_names, load_config
-from midp.repository import ReceiptRepository
+from midp.repository import ReceiptRepository, apply_corrections
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_FILE = REPO_ROOT / "configs" / "receipts.yaml"
@@ -131,7 +131,8 @@ def read_receipt(receipt_id: str, repository: Annotated[ReceiptRepository, Depen
         "model": receipt.model,
         "seconds": receipt.seconds,
         "result": receipt.result,
-        "correction": receipt.correction,
+        "corrections": receipt.corrections,
+        "final": apply_corrections(receipt.result, receipt.corrections),
     }
 
 
