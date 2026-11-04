@@ -39,3 +39,11 @@ def test_extract_refuses_files_that_are_not_images() -> None:
     app.dependency_overrides.clear()
     assert wrong_type.status_code == 415
     assert broken.status_code == 400
+
+
+def test_config_is_found_whatever_the_working_directory(tmp_path, monkeypatch) -> None:
+    from midp.api import CONFIG_FILE
+
+    monkeypatch.chdir(tmp_path)
+
+    assert CONFIG_FILE.is_file()

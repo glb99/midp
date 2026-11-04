@@ -18,7 +18,8 @@ from PIL import Image, UnidentifiedImageError
 
 from midp.config import field_names, load_config
 
-CONFIG_FILE = Path("configs/receipts.yaml")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CONFIG_FILE = REPO_ROOT / "configs" / "receipts.yaml"
 ACCEPTED_TYPES = {"image/png", "image/jpeg"}
 
 app = FastAPI(title="midp")
