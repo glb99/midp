@@ -1,0 +1,21 @@
+# Client 2: a sales invoice. The same product as receipts, a different config.
+document_type: invoice
+fields:
+  - name: number
+    type: text
+    required: true
+  - name: date
+    type: text
+    required: true
+  - name: supplier
+    type: text
+    required: true
+  - name: lines
+    kind: list
+    item:
+      - {name: description, type: text, required: true}
+      - {name: quantity, type: integer, required: false}
+      - {name: amount, type: amount, required: true}
+  - {name: subtotal, type: amount, required: false}
+  - {name: tax, type: amount, required: false}
+  - {name: total, type: amount, required: true}
