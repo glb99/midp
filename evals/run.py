@@ -18,7 +18,7 @@ from pathlib import Path
 from evals.datasets.cord import get_row, load, to_reference
 from evals.metrics import UNLABELLED, aggregate, score_document
 from midp.config import field_names, load_config
-from midp.gemini import gemini_model
+from midp.gemini import DEFAULT_MODEL, gemini_model
 from midp.predictors import EmptyPredictor, FakePredictor, MultimodalPredictor
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -52,7 +52,8 @@ def build_predictor(name: str, model_name: str | None, latency: float | None):
     if name == "gemini":
         fields = field_names(load_config(CONFIG_FILE))
         model = gemini_model(model_name) if model_name else gemini_model()
-        return MultimodalPredictor(model=model, fields=fields), model
+        name = model_name or DEFAULT_MODEL
+        return MultimodalPredictor(model=model, fields=fields, model_name=name), model
     raise SystemExit(f"unknown predictor: {name}")
 
 

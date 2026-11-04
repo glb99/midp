@@ -118,9 +118,10 @@ class MultimodalPredictor:
 
     name = "multimodal"
 
-    def __init__(self, model: ModelCall, fields: list[str]) -> None:
+    def __init__(self, model: ModelCall, fields: list[str], model_name: str) -> None:
         self._model = model
         self._prompt = build_prompt(fields)
+        self.model_name = model_name  # recorded with each stored result
 
     def predict(self, image: Any) -> dict:
         return parse_response(self._model(_png_bytes(image), self._prompt))
