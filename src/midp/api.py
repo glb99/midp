@@ -56,6 +56,43 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+@lru_cache
+def _config_fields() -> dict[str, dict]:
+    return {field["name"]: field for field in load_config(CONFIG_FILE)["fields"]}
+
+
+def _is_number(value: Any) -> bool:
+    return value is None or (isinstance(value, int | float) and not isinstance(value, bool))
+
+
+def _check_correction(fields: dict[str, Any]) -> None:
+    """Refuse a correction that names an unknown field or gives a value of the wrong kind."""
+    known = _config_fields()
+    errors: list[str] = []
+    for name, value in fields.items():
+        spec = known.get(name)
+        if spec is None:
+            errors.append(f"unknown field: {name}")
+        elif spec.get("kind") == "list":
+            if value is not None and not isinstance(value, list):
+                errors.append(f"{name} must be a list")
+                continue
+            item_spec = {item["name"]: item for item in spec.get("item", [])}
+            for index, item in enumerate(value or []):
+                if not isinstance(item, dict):
+                    errors.append(f"{name}[{index}] must be an object")
+                    continue
+                for key, item_value in item.items():
+                    if key not in item_spec:
+                        errors.append(f"unknown field in {name}[{index}]: {key}")
+                    elif item_spec[key]["type"] == "amount" and not _is_number(item_value):
+                        errors.append(f"{name}[{index}].{key} must be a number")
+        elif spec["type"] == "amount" and not _is_number(value):
+            errors.append(f"{name} must be a number")
+    if errors:
+        raise HTTPException(status_code=422, detail=errors)
+
+
 @app.post("/receipts/extract")
 def extract(
     file: Annotated[UploadFile, File()],
@@ -106,5 +143,6 @@ def add_correction(
 ) -> dict:
     if not repository.exists(receipt_id):
         raise HTTPException(status_code=404, detail="no receipt with that id")
+    _check_correction(fields)
     repository.add_correction(receipt_id, fields)
     return {"id": receipt_id, "correction": fields}

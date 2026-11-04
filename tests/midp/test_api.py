@@ -96,3 +96,36 @@ def test_correcting_an_unknown_receipt_is_not_found(client: TestClient) -> None:
     response = client.post("/receipts/does-not-exist/corrections", json={"total": 1})
 
     assert response.status_code == 404
+
+
+def test_a_correction_with_an_unknown_field_is_refused(client: TestClient) -> None:
+    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+
+    response = client.post(f"/receipts/{created['id']}/corrections", json={"banana": 3})
+
+    assert response.status_code == 422
+    assert "unknown field: banana" in response.json()["detail"]
+
+
+def test_a_correction_with_a_text_amount_is_refused(client: TestClient) -> None:
+    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+
+    response = client.post(f"/receipts/{created['id']}/corrections", json={"total": "1.591.600"})
+
+    assert response.status_code == 422
+
+
+def test_a_correction_to_a_line_is_checked_too(client: TestClient) -> None:
+    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+
+    good = client.post(
+        f"/receipts/{created['id']}/corrections",
+        json={"lines": [{"description": "Nasi", "quantity": 1, "amount": 75000}]},
+    )
+    bad = client.post(
+        f"/receipts/{created['id']}/corrections",
+        json={"lines": [{"description": "Nasi", "amount": "75.000"}]},
+    )
+
+    assert good.status_code == 200
+    assert bad.status_code == 422
