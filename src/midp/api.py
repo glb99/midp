@@ -19,7 +19,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
-from midp.config import field_names, load_config
+from midp.config import load_config
 from midp.repository import ReceiptRepository, apply_corrections
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -36,8 +36,7 @@ def get_predictor() -> Any:
     from midp.gemini import DEFAULT_MODEL, gemini_model
     from midp.predictors import MultimodalPredictor
 
-    fields = field_names(load_config(CONFIG_FILE))
-    return MultimodalPredictor(model=gemini_model(), fields=fields, model_name=DEFAULT_MODEL)
+    return MultimodalPredictor(model=gemini_model(), config=load_config(CONFIG_FILE), model_name=DEFAULT_MODEL)
 
 
 @lru_cache

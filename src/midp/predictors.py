@@ -69,29 +69,42 @@ def build_prompt(fields: list[str]) -> str:
     )
 
 
-def parse_response(text: str) -> dict:
+def parse_response(text: str, config: dict) -> dict:
     """Turn the model's text into a dict in the config's shape.
 
-    Models sometimes wrap JSON in a code fence; that is removed first.
-    A value that cannot be read becomes None, so it scores as a miss.
+    Each field is read according to its type in the config: amounts become
+    numbers, text stays text. Models sometimes wrap JSON in a code fence,
+    which is removed first. A value that cannot be read becomes None.
     """
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
     raw = json.loads(cleaned)
+    specs = {field["name"]: field for field in config["fields"]}
 
-    lines = []
-    for item in raw.get("lines") or []:
-        lines.append(
-            {
-                "description": item.get("description"),
-                "quantity": _safe(parse_quantity, item.get("quantity")),
-                "amount": _safe(parse_amount, item.get("amount")),
-            }
-        )
-    result = {"lines": lines}
-    for field, value in raw.items():
-        if field != "lines":
-            result[field] = _safe(parse_amount, value)
+    result: dict[str, Any] = {}
+    for name, value in raw.items():
+        spec = specs.get(name)
+        if spec is None:
+            continue
+        if spec.get("kind") == "list":
+            item_types = {item["name"]: item["type"] for item in spec.get("item", [])}
+            result[name] = [_parse_item(item, item_types) for item in (value or [])]
+        else:
+            result[name] = _parse_scalar(value, spec["type"])
     return result
+
+
+def _parse_item(item: Any, item_types: dict[str, str]) -> dict:
+    if not isinstance(item, dict):
+        return {}
+    return {key: _parse_scalar(value, item_types[key]) for key, value in item.items() if key in item_types}
+
+
+def _parse_scalar(value: Any, kind: str) -> Any:
+    if kind == "amount":
+        return _safe(parse_amount, value)
+    if kind == "integer":
+        return _safe(parse_quantity, value)
+    return None if value is None else str(value)
 
 
 def _safe(parse, value):
@@ -118,10 +131,11 @@ class MultimodalPredictor:
 
     name = "multimodal"
 
-    def __init__(self, model: ModelCall, fields: list[str], model_name: str) -> None:
+    def __init__(self, model: ModelCall, config: dict, model_name: str) -> None:
         self._model = model
-        self._prompt = build_prompt(fields)
+        self._config = config
+        self._prompt = build_prompt([field["name"] for field in config["fields"]])
         self.model_name = model_name  # recorded with each stored result
 
     def predict(self, image: Any) -> dict:
-        return parse_response(self._model(_png_bytes(image), self._prompt))
+        return parse_response(self._model(_png_bytes(image), self._prompt), self._config)

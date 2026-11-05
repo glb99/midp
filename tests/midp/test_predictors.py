@@ -4,7 +4,18 @@ from PIL import Image
 
 from midp.predictors import MultimodalPredictor, parse_response
 
-FIELDS = ["lines", "subtotal", "tax", "total"]
+CONFIG = {
+    "fields": [
+        {"name": "lines", "kind": "list", "item": [
+            {"name": "description", "type": "text"},
+            {"name": "quantity", "type": "integer"},
+            {"name": "amount", "type": "amount"},
+        ]},
+        {"name": "subtotal", "type": "amount"},
+        {"name": "tax", "type": "amount"},
+        {"name": "total", "type": "amount"},
+    ]
+}
 
 
 def test_multimodal_predictor_reads_the_model_answer() -> None:
@@ -12,7 +23,7 @@ def test_multimodal_predictor_reads_the_model_answer() -> None:
         '{"lines": [{"description": "Nasi", "quantity": "1", "amount": "75000"}],'
         ' "subtotal": "75000", "tax": null, "total": "82500"}'
     )
-    predictor = MultimodalPredictor(model=lambda image, prompt: answer, fields=FIELDS, model_name="test-model")
+    predictor = MultimodalPredictor(model=lambda image, prompt: answer, config=CONFIG, model_name="test-model")
 
     result = predictor.predict(Image.new("RGB", (4, 4)))
 
@@ -25,4 +36,4 @@ def test_multimodal_predictor_reads_the_model_answer() -> None:
 def test_parse_response_accepts_a_code_fence() -> None:
     fenced = '```json\n{"total": "5"}\n```'
 
-    assert parse_response(fenced)["total"] == Decimal(5)
+    assert parse_response(fenced, CONFIG)["total"] == Decimal(5)
