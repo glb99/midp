@@ -19,7 +19,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
-from midp.config import load_config
+from midp.config import load_type_config
 from midp.repository import ReceiptRepository, apply_corrections
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -36,7 +36,7 @@ def get_predictor() -> Any:
     from midp.gemini import DEFAULT_MODEL, gemini_model
     from midp.predictors import MultimodalPredictor
 
-    return MultimodalPredictor(model=gemini_model(), config=load_config(CONFIG_FILE), model_name=DEFAULT_MODEL)
+    return MultimodalPredictor(model=gemini_model(), config=load_type_config(CONFIG_FILE), model_name=DEFAULT_MODEL)
 
 
 @lru_cache
@@ -57,7 +57,7 @@ def _jsonable(value: Any) -> Any:
 
 @lru_cache
 def _config_fields() -> dict[str, dict]:
-    return {field["name"]: field for field in load_config(CONFIG_FILE)["fields"]}
+    return {field["name"]: field for field in load_type_config(CONFIG_FILE)["fields"]}
 
 
 def _is_number(value: Any) -> bool:

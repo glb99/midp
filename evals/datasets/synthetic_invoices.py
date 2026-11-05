@@ -47,13 +47,14 @@ def _invoice(rng: random.Random, index: int) -> tuple[dict, dict]:
     return labels, {}
 
 
-def _render(labels: dict, rng: random.Random) -> Image.Image:
+def _render(labels: dict, rng: random.Random, title: str | None = "FACTURA", prices: bool = True) -> Image.Image:
     image = Image.new("RGB", (1240, 1754), "white")
     draw = ImageDraw.Draw(image)
     font = ImageFont.truetype(str(FONT), 34) if FONT.exists() else ImageFont.load_default()
     small = ImageFont.truetype(str(FONT), 28) if FONT.exists() else ImageFont.load_default()
 
-    draw.text((80, 80), "FACTURA", fill="black", font=font)
+    if title:
+        draw.text((80, 80), title, fill="black", font=font)
     draw.text((80, 150), f"Número: {labels['number']}", fill="black", font=small)
     draw.text((80, 190), f"Fecha: {labels['date']}", fill="black", font=small)
     draw.text((80, 230), f"Proveedor: {labels['supplier']}", fill="black", font=small)
@@ -70,7 +71,7 @@ def _render(labels: dict, rng: random.Random) -> Image.Image:
         y += 50
 
     y += 60
-    for caption, value in [("Base imponible", labels["subtotal"]), ("IVA 21%", labels["tax"]), ("Total", labels["total"])]:
+    for caption, value in ([("Base imponible", labels["subtotal"]), ("IVA 21%", labels["tax"]), ("Total", labels["total"])] if prices else []):
         draw.text((600, y), caption, fill="black", font=small)
         draw.text((900, y), f"{value} EUR", fill="black", font=small)
         y += 50
@@ -78,6 +79,28 @@ def _render(labels: dict, rng: random.Random) -> Image.Image:
     image = image.filter(ImageFilter.GaussianBlur(radius=0.8))
     noise = [rng.randint(-12, 12) for _ in range(256)]
     return image.point(lambda v: max(0, min(255, v + noise[v % 256])))
+
+
+def generate_delivery_notes(count: int, seed: int, titled: bool) -> Path:
+    """Albaranes: the same layout and items as invoices, but no prices or tax.
+
+    With titled=False the header says nothing about the type, so the model
+    has to decide from the content alone.
+    """
+    rng = random.Random(seed)
+    out_dir = REPO_ROOT / "data" / ("synthetic_delivery_notes" if titled else "synthetic_delivery_notes_untitled")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    labels_out = {}
+    for index in range(count):
+        labels, _ = _invoice(rng, index)
+        for key in ("subtotal", "tax", "total"):
+            labels[key] = None
+        name = f"{index:04d}.png"
+        _render(labels, rng, title="ALBARÁN DE ENTREGA" if titled else None, prices=False).save(out_dir / name)
+        labels_out[name] = labels
+    (out_dir / "labels.json").write_text(json.dumps(labels_out, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"wrote {count} delivery notes to {out_dir}")
+    return out_dir
 
 
 def generate(count: int, seed: int = 0) -> None:
