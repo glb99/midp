@@ -16,3 +16,6 @@ fields:
     item:
       - {name: description, type: text, required: true}
       - {name: quantity, type: integer, required: false}
+checks:
+  required: [number, date, supplier]
+  lines_not_empty: true

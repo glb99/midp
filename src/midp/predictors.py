@@ -78,6 +78,8 @@ def parse_response(text: str, config: dict) -> dict:
     """
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
     raw = json.loads(cleaned)
+    if not isinstance(raw, dict):  # a list or a number is not an answer: no fields are read
+        raw = {}
     specs = {field["name"]: field for field in config["fields"]}
 
     result: dict[str, Any] = {}

@@ -55,6 +55,8 @@ def test_extract_classifies_then_returns_the_type_and_its_fields(client: TestCli
         "lines": [],
         "total": 61799,
         "discount": -19000,
+        "needs_review": False,
+        "problems": [],
     }
     assert len(body["id"]) == 32
 
@@ -68,7 +70,9 @@ def test_an_image_of_an_unknown_type_is_stored_without_fields(tmp_path: Path) ->
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
-    assert response.json()["result"] == {"document_type": None, "confidence": 0.95}
+    result = response.json()["result"]
+    assert result["document_type"] is None
+    assert result["needs_review"] is True
 
 
 def test_a_stored_receipt_can_be_read_again(client: TestClient) -> None:
@@ -163,3 +167,22 @@ def test_config_is_found_whatever_the_working_directory(tmp_path, monkeypatch) -
     monkeypatch.chdir(tmp_path)
 
     assert TYPES_FILE.is_file()
+
+
+def test_a_document_that_fails_its_type_checks_is_marked_for_review(tmp_path: Path) -> None:
+    class InvoiceWithoutTax(FixedPredictor):
+        def predict(self, image):
+            return {"number": "F1", "date": "d", "supplier": "s", "lines": [{"description": "x", "quantity": 3, "amount": 144}], "subtotal": 144, "tax": None, "total": 144}
+
+    app.dependency_overrides[get_classifier] = lambda: FixedClassifier("invoice")
+    app.dependency_overrides[get_predictors] = lambda: {"invoice": InvoiceWithoutTax()}
+    app.dependency_overrides[get_repository] = lambda: ReceiptRepository(tmp_path / "review.sqlite3")
+    client = TestClient(app)
+
+    response = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")})
+
+    app.dependency_overrides.clear()
+    result = response.json()["result"]
+    assert result["needs_review"] is True
+    assert "missing tax" in result["problems"]
+    assert result["total"] == 144

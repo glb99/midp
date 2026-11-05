@@ -19,3 +19,8 @@ fields:
   - {name: subtotal, type: amount, required: false}
   - {name: tax, type: amount, required: false}
   - {name: total, type: amount, required: true}
+checks:
+  required: [number, date, supplier, total, tax]
+  lines_not_empty: true
+  total_is_subtotal_plus_tax: true
+  lines_sum_to_subtotal: true

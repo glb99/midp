@@ -20,6 +20,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
+from midp.checks import check_result
 from midp.classifier import TypeClassifier
 from midp.config import load_document_types, load_type_config
 from midp.repository import ReceiptRepository, apply_corrections
@@ -61,6 +62,12 @@ def get_predictors() -> dict[str, Any]:
         )
         for entry in get_types()
     }
+
+
+@lru_cache
+def get_type_configs() -> dict[str, dict]:
+    """Each type's full config, by name, for its fields and its checks."""
+    return {entry["name"]: load_type_config(entry["config"]) for entry in get_types()}
 
 
 @lru_cache
@@ -121,6 +128,7 @@ def extract(
     file: Annotated[UploadFile, File()],
     classifier: Annotated[Any, Depends(get_classifier)],
     predictors: Annotated[dict[str, Any], Depends(get_predictors)],
+    type_configs: Annotated[dict[str, dict], Depends(get_type_configs)],
     repository: Annotated[ReceiptRepository, Depends(get_repository)],
 ) -> dict:
     if file.content_type not in ACCEPTED_TYPES:
@@ -135,7 +143,12 @@ def extract(
     classification = classifier.classify(image)
     document_type = classification.document_type
     if document_type is None:
-        result: dict[str, Any] = {"document_type": None, "confidence": classification.confidence}
+        result: dict[str, Any] = {
+            "document_type": None,
+            "confidence": classification.confidence,
+            "needs_review": True,
+            "problems": ["the type is unknown or not certain"],
+        }
         model = "none"
     else:
         predictor = predictors[document_type]
@@ -144,6 +157,9 @@ def extract(
             "confidence": classification.confidence,
             **_jsonable(predictor.predict(image)),
         }
+        problems = check_result(result, type_configs[document_type].get("checks", {}))
+        result["needs_review"] = bool(problems)
+        result["problems"] = problems
         model = predictor.model_name
     seconds = round(time.perf_counter() - started, 3)
     receipt_id = repository.save(

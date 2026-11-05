@@ -37,3 +37,7 @@ def test_parse_response_accepts_a_code_fence() -> None:
     fenced = '```json\n{"total": "5"}\n```'
 
     assert parse_response(fenced, CONFIG)["total"] == Decimal(5)
+
+
+def test_an_answer_that_is_not_an_object_reads_no_fields() -> None:
+    assert parse_response("[1, 2, 3]", CONFIG) == {}
