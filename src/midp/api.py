@@ -132,13 +132,18 @@ def extract(
         raise HTTPException(status_code=400, detail="the file is not a readable image")
 
     started = time.perf_counter()
-    document_type = classifier.classify(image)
+    classification = classifier.classify(image)
+    document_type = classification.document_type
     if document_type is None:
-        result: dict[str, Any] = {"document_type": None}
+        result: dict[str, Any] = {"document_type": None, "confidence": classification.confidence}
         model = "none"
     else:
         predictor = predictors[document_type]
-        result = {"document_type": document_type, **_jsonable(predictor.predict(image))}
+        result = {
+            "document_type": document_type,
+            "confidence": classification.confidence,
+            **_jsonable(predictor.predict(image)),
+        }
         model = predictor.model_name
     seconds = round(time.perf_counter() - started, 3)
     receipt_id = repository.save(

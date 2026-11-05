@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from midp.api import app, get_classifier, get_predictors, get_repository
+from midp.classifier import Classification
 from midp.repository import ReceiptRepository
 
 
@@ -19,11 +20,11 @@ class FixedPredictor:
 
 
 class FixedClassifier:
-    def __init__(self, answer):
-        self._answer = answer
+    def __init__(self, document_type):
+        self._classification = Classification(document_type=document_type, confidence=0.95)
 
     def classify(self, image):
-        return self._answer
+        return self._classification
 
 
 def _png() -> bytes:
@@ -48,7 +49,13 @@ def test_extract_classifies_then_returns_the_type_and_its_fields(client: TestCli
 
     assert response.status_code == 200
     body = response.json()
-    assert body["result"] == {"document_type": "receipt", "lines": [], "total": 61799, "discount": -19000}
+    assert body["result"] == {
+        "document_type": "receipt",
+        "confidence": 0.95,
+        "lines": [],
+        "total": 61799,
+        "discount": -19000,
+    }
     assert len(body["id"]) == 32
 
 
@@ -61,7 +68,7 @@ def test_an_image_of_an_unknown_type_is_stored_without_fields(tmp_path: Path) ->
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
-    assert response.json()["result"] == {"document_type": None}
+    assert response.json()["result"] == {"document_type": None, "confidence": 0.95}
 
 
 def test_a_stored_receipt_can_be_read_again(client: TestClient) -> None:

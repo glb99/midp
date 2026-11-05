@@ -2,7 +2,12 @@ from pathlib import Path
 
 from PIL import Image
 
-from midp.classifier import TypeClassifier, build_type_prompt, parse_type
+from midp.classifier import (
+    Classification,
+    TypeClassifier,
+    build_type_prompt,
+    parse_classification,
+)
 from midp.config import load_document_types
 
 TYPES = load_document_types(Path(__file__).parents[2] / "configs" / "document_types.yaml")
@@ -17,17 +22,30 @@ def test_the_prompt_names_every_registered_type_and_its_description() -> None:
         assert entry["description"] in prompt
 
 
-def test_an_answer_naming_a_known_type_is_read() -> None:
-    assert parse_type('{"type": "invoice"}', NAMES) == "invoice"
-    assert parse_type('```json\n{"type": "delivery_note"}\n```', NAMES) == "delivery_note"
+def test_a_known_type_with_its_confidence_is_read() -> None:
+    assert parse_classification('{"type": "invoice", "confidence": 0.95}', NAMES) == ("invoice", 0.95)
+    assert parse_classification('```json\n{"type": "delivery_note", "confidence": 0.9}\n```', NAMES) == (
+        "delivery_note",
+        0.9,
+    )
 
 
-def test_an_unknown_type_or_a_broken_answer_is_none() -> None:
-    assert parse_type('{"type": "contract"}', NAMES) is None
-    assert parse_type("not json", NAMES) is None
+def test_an_unknown_type_or_a_broken_answer_gives_no_type() -> None:
+    assert parse_classification('{"type": "contract", "confidence": 0.99}', NAMES) == (None, 0.99)
+    assert parse_classification("not json", NAMES) == (None, None)
 
 
-def test_the_classifier_returns_the_type_the_model_chose() -> None:
-    classifier = TypeClassifier(model=lambda image, prompt: '{"type": "receipt"}', types=TYPES)
+def test_a_confident_answer_is_classified() -> None:
+    classifier = TypeClassifier(model=lambda image, prompt: '{"type": "receipt", "confidence": 0.97}', types=TYPES)
 
-    assert classifier.classify(Image.new("RGB", (4, 4))) == "receipt"
+    result = classifier.classify(Image.new("RGB", (4, 4)))
+
+    assert result == Classification(document_type="receipt", confidence=0.97)
+
+
+def test_an_unsure_answer_is_not_classified() -> None:
+    classifier = TypeClassifier(model=lambda image, prompt: '{"type": "invoice", "confidence": 0.55}', types=TYPES)
+
+    result = classifier.classify(Image.new("RGB", (4, 4)))
+
+    assert result == Classification(document_type=None, confidence=0.55)
