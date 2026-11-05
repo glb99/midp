@@ -1,10 +1,11 @@
-"""HTTP API: send a receipt image, get its fields back, and read them again later.
+"""HTTP API: send a document image, get its type and fields back, and read them later.
 
     uv run uvicorn midp.api:app --reload
 
-Each extraction is stored in SQLite under data/, with the image as uploaded
-and the model's answer. Reviewers can add corrections, which are kept apart
-from the original answer.
+Each image is first classified against the registry of document types, then
+extracted with that type's config. The result, the image and any corrections
+are stored in SQLite under data/. An image of an unknown type is stored
+without fields, so a reviewer can still see it.
 """
 
 from __future__ import annotations
@@ -19,11 +20,12 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
-from midp.config import load_type_config
+from midp.classifier import TypeClassifier
+from midp.config import load_document_types, load_type_config
 from midp.repository import ReceiptRepository, apply_corrections
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CONFIG_FILE = REPO_ROOT / "configs" / "receipts.yaml"
+TYPES_FILE = REPO_ROOT / "configs" / "document_types.yaml"
 DATABASE_FILE = REPO_ROOT / "data" / "midp.sqlite3"
 ACCEPTED_TYPES = {"image/png", "image/jpeg"}
 
@@ -31,12 +33,34 @@ app = FastAPI(title="midp")
 
 
 @lru_cache
-def get_predictor() -> Any:
-    """The predictor used by the API. Built once, from the receipt config."""
-    from midp.gemini import DEFAULT_MODEL, gemini_model
+def get_model() -> Any:
+    from midp.gemini import gemini_model
+
+    return gemini_model()
+
+
+@lru_cache
+def get_types() -> list[dict]:
+    return load_document_types(TYPES_FILE)
+
+
+@lru_cache
+def get_classifier() -> Any:
+    return TypeClassifier(model=get_model(), types=get_types())
+
+
+@lru_cache
+def get_predictors() -> dict[str, Any]:
+    """One extraction predictor per document type, each built from that type's config."""
+    from midp.gemini import DEFAULT_MODEL
     from midp.predictors import MultimodalPredictor
 
-    return MultimodalPredictor(model=gemini_model(), config=load_type_config(CONFIG_FILE), model_name=DEFAULT_MODEL)
+    return {
+        entry["name"]: MultimodalPredictor(
+            model=get_model(), config=load_type_config(entry["config"]), model_name=DEFAULT_MODEL
+        )
+        for entry in get_types()
+    }
 
 
 @lru_cache
@@ -55,18 +79,18 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-@lru_cache
-def _config_fields() -> dict[str, dict]:
-    return {field["name"]: field for field in load_type_config(CONFIG_FILE)["fields"]}
+def _fields_of(document_type: str) -> dict[str, dict]:
+    config = next(entry["config"] for entry in get_types() if entry["name"] == document_type)
+    return {field["name"]: field for field in load_type_config(config)["fields"]}
 
 
 def _is_number(value: Any) -> bool:
     return value is None or (isinstance(value, int | float) and not isinstance(value, bool))
 
 
-def _check_correction(fields: dict[str, Any]) -> None:
-    """Refuse a correction that names an unknown field or gives a value of the wrong kind."""
-    known = _config_fields()
+def _check_correction(fields: dict[str, Any], document_type: str) -> None:
+    """Refuse a correction that names a field the document's type does not have, or a wrong kind of value."""
+    known = _fields_of(document_type)
     errors: list[str] = []
     for name, value in fields.items():
         spec = known.get(name)
@@ -95,7 +119,8 @@ def _check_correction(fields: dict[str, Any]) -> None:
 @app.post("/receipts/extract")
 def extract(
     file: Annotated[UploadFile, File()],
-    predictor: Annotated[Any, Depends(get_predictor)],
+    classifier: Annotated[Any, Depends(get_classifier)],
+    predictors: Annotated[dict[str, Any], Depends(get_predictors)],
     repository: Annotated[ReceiptRepository, Depends(get_repository)],
 ) -> dict:
     if file.content_type not in ACCEPTED_TYPES:
@@ -107,12 +132,19 @@ def extract(
         raise HTTPException(status_code=400, detail="the file is not a readable image")
 
     started = time.perf_counter()
-    result = _jsonable(predictor.predict(image))
+    document_type = classifier.classify(image)
+    if document_type is None:
+        result: dict[str, Any] = {"document_type": None}
+        model = "none"
+    else:
+        predictor = predictors[document_type]
+        result = {"document_type": document_type, **_jsonable(predictor.predict(image))}
+        model = predictor.model_name
     seconds = round(time.perf_counter() - started, 3)
     receipt_id = repository.save(
         image=data,
         content_type=file.content_type,
-        model=predictor.model_name,
+        model=model,
         seconds=seconds,
         result=result,
     )
@@ -141,8 +173,12 @@ def add_correction(
     fields: dict[str, Any],
     repository: Annotated[ReceiptRepository, Depends(get_repository)],
 ) -> dict:
-    if not repository.exists(receipt_id):
+    receipt = repository.get(receipt_id)
+    if receipt is None:
         raise HTTPException(status_code=404, detail="no receipt with that id")
-    _check_correction(fields)
+    document_type = receipt.result.get("document_type")
+    if document_type is None:
+        raise HTTPException(status_code=422, detail="this document has no known type to correct against")
+    _check_correction(fields, document_type)
     repository.add_correction(receipt_id, fields)
     return {"id": receipt_id, "correction": fields}

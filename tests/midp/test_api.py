@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from midp.api import app, get_predictor, get_repository
+from midp.api import app, get_classifier, get_predictors, get_repository
 from midp.repository import ReceiptRepository
 
 
@@ -18,6 +18,14 @@ class FixedPredictor:
         return {"lines": [], "total": Decimal(61799), "discount": Decimal(-19000)}
 
 
+class FixedClassifier:
+    def __init__(self, answer):
+        self._answer = answer
+
+    def classify(self, image):
+        return self._answer
+
+
 def _png() -> bytes:
     buffer = BytesIO()
     Image.new("RGB", (4, 4)).save(buffer, format="PNG")
@@ -26,19 +34,34 @@ def _png() -> bytes:
 
 @pytest.fixture
 def client(tmp_path: Path):
-    app.dependency_overrides[get_predictor] = lambda: FixedPredictor()
+    app.dependency_overrides[get_classifier] = lambda: FixedClassifier("receipt")
+    app.dependency_overrides[get_predictors] = lambda: {
+        name: FixedPredictor() for name in ("receipt", "invoice", "delivery_note")
+    }
     app.dependency_overrides[get_repository] = lambda: ReceiptRepository(tmp_path / "test.sqlite3")
     yield TestClient(app)
     app.dependency_overrides.clear()
 
 
-def test_extract_returns_id_and_fields_as_json_numbers(client: TestClient) -> None:
+def test_extract_classifies_then_returns_the_type_and_its_fields(client: TestClient) -> None:
     response = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")})
 
     assert response.status_code == 200
     body = response.json()
-    assert body["result"] == {"lines": [], "total": 61799, "discount": -19000}
+    assert body["result"] == {"document_type": "receipt", "lines": [], "total": 61799, "discount": -19000}
     assert len(body["id"]) == 32
+
+
+def test_an_image_of_an_unknown_type_is_stored_without_fields(tmp_path: Path) -> None:
+    app.dependency_overrides[get_classifier] = lambda: FixedClassifier(None)
+    app.dependency_overrides[get_repository] = lambda: ReceiptRepository(tmp_path / "unknown.sqlite3")
+    client = TestClient(app)
+
+    response = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["result"] == {"document_type": None}
 
 
 def test_a_stored_receipt_can_be_read_again(client: TestClient) -> None:
@@ -63,14 +86,6 @@ def test_extract_refuses_files_that_are_not_images(client: TestClient) -> None:
 
     assert wrong_type.status_code == 415
     assert broken.status_code == 400
-
-
-def test_config_is_found_whatever_the_working_directory(tmp_path, monkeypatch) -> None:
-    from midp.api import CONFIG_FILE
-
-    monkeypatch.chdir(tmp_path)
-
-    assert CONFIG_FILE.is_file()
 
 
 def test_a_correction_is_kept_apart_from_the_original_answer(client: TestClient) -> None:
@@ -133,3 +148,11 @@ def test_a_correction_to_a_line_is_checked_too(client: TestClient) -> None:
 
     assert good.status_code == 200
     assert bad.status_code == 422
+
+
+def test_config_is_found_whatever_the_working_directory(tmp_path, monkeypatch) -> None:
+    from midp.api import TYPES_FILE
+
+    monkeypatch.chdir(tmp_path)
+
+    assert TYPES_FILE.is_file()
