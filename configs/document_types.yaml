@@ -1,0 +1,12 @@
+# The document types the system knows, and the config each one uses.
+# The description is what the classifier reads to choose between them.
+types:
+  - name: receipt
+    config: receipts.yaml
+    description: A point-of-sale receipt from a shop or restaurant, with items, a subtotal, service and tax, and a total paid.
+  - name: invoice
+    config: invoices.yaml
+    description: A sales invoice with the word FACTURA or an invoice number, issuer and customer, items with prices, tax base, VAT and total.
+  - name: delivery_note
+    config: delivery_notes.yaml
+    description: An albarán de entrega, the items and quantities delivered, with no prices, no tax and no total.

@@ -1,0 +1,18 @@
+# Client 3: a delivery note (albarán de entrega). Same items as an invoice,
+# but no prices, tax or total, so the amounts are not extracted.
+document_type: delivery_note
+fields:
+  - name: number
+    type: text
+    required: true
+  - name: date
+    type: text
+    required: true
+  - name: supplier
+    type: text
+    required: true
+  - name: lines
+    kind: list
+    item:
+      - {name: description, type: text, required: true}
+      - {name: quantity, type: integer, required: false}
