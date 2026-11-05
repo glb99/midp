@@ -38,7 +38,7 @@ def build_type_prompt(types: list[dict]) -> str:
     return (
         "Look at this document and decide its type. The possible types are:\n"
         + "\n".join(lines)
-        + "\nIf the document has no title, decide from its content alone, and say how sure you are."
+        + "\nSay how sure you are."
         + f'\nReturn only JSON: {{"type": {names}, "confidence": a number from 0 to 1}}.'
     )
 

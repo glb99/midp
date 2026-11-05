@@ -6,6 +6,12 @@ Each image is first classified against the registry of document types, then
 extracted with that type's config. The result, the image and any corrections
 are stored in SQLite under data/. An image of an unknown type is stored
 without fields, so a reviewer can still see it.
+
+Known limitation: a delivery note with no title can be read as an invoice.
+Its `document_type` is then "invoice", which is provisional. The invoice
+checks flag it for review (missing tax and total), but the fields returned
+for it are not real: the model fills in prices the document does not show.
+Do not treat such a result as validated.
 """
 
 from __future__ import annotations

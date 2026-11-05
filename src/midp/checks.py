@@ -17,6 +17,9 @@ def _number(value: Any) -> Decimal:
     return Decimal(str(value))
 
 
+# TODO: this is an if-chain, one block per rule key in the YAML. When a type
+# needs more rules, turn it into a registry: each key maps to a small function,
+# and check_result runs the functions whose keys are switched on.
 def check_result(result: dict[str, Any], checks: dict[str, Any]) -> list[str]:
     problems: list[str] = []
     for name in checks.get("required", []):
