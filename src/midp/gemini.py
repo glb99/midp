@@ -54,6 +54,6 @@ def gemini_model(model: str = DEFAULT_MODEL):
                 usage["thinking_tokens"] += meta.thoughts_token_count or 0
         return response.text or ""
 
-    call.usage = usage  # running totals, read by evals.run
+    call.usage = usage  # running totals, read by evals.predict
     call.model = model  # name recorded with each run
     return call

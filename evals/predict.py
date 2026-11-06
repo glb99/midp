@@ -1,6 +1,6 @@
 """Run a predictor over the dev split and print field-level scores.
 
-    uv run python -m evals.run
+    uv run python -m evals.predict
 
 Results are also saved to runs/ as JSON, so runs can be compared later.
 """
@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
+from evals.common import RUNS_DIR, fmt
 from evals.datasets.cord import get_row, load, to_reference
 from evals.metrics import UNLABELLED, aggregate, score_document
 from midp.config import load_type_config
@@ -24,7 +25,6 @@ from midp.predictors import EmptyPredictor, FakePredictor, MultimodalPredictor
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPLIT_FILE = REPO_ROOT / "evals" / "splits" / "cord_dev.txt"
 CONFIG_FILE = REPO_ROOT / "configs" / "receipts.yaml"
-RUNS_DIR = REPO_ROOT / "runs"
 
 
 def read_ids(path: Path) -> list[str]:
@@ -35,10 +35,6 @@ def warm_up_splits(ids: list[str]) -> None:
     """Open each split once, before the threads start, so they do not race to load it."""
     for split in {row_id.rpartition("-")[0] for row_id in ids}:
         load(split)
-
-
-def fmt(value: float | None) -> str:
-    return "  -  " if value is None else f"{value:.3f}"
 
 
 def build_predictor(name: str, model_name: str | None, latency: float | None):
@@ -57,7 +53,7 @@ def build_predictor(name: str, model_name: str | None, latency: float | None):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="evals.run")
+    parser = argparse.ArgumentParser(prog="evals.predict")
     parser.add_argument("--predictor", default="empty", choices=["empty", "fake", "gemini"])
     parser.add_argument("--latency", type=float, default=None, help="seconds per call (required with --predictor fake)")
     parser.add_argument("--model", default=None, help="model name, e.g. gemini-3.8-flash-lite")
