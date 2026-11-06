@@ -23,16 +23,17 @@ from evals.metrics import Score
 
 TYPES_FILE = REPO_ROOT / "configs" / "document_types.yaml"
 CORD_DEV = REPO_ROOT / "evals" / "splits" / "cord_dev.txt"
+CORD_EXAMPLES = REPO_ROOT / "evals" / "splits" / "cord_examples.txt"
 CLASSES = ["receipt", "invoice", "delivery_note"]
 NONE = "none"
 TRANSCRIBE = "Transcribe all the text in this document, in reading order, as plain text. Output only the text, nothing else."
 
 
 def example_set() -> list[tuple[str, Image.Image]]:
-    """Typed examples for the similarity method: untitled delivery notes and titled invoices.
+    """Typed examples for the similarity method: untitled delivery notes, titled invoices and receipts.
 
-    They are generated here, with seeds that are not used by the test set,
-    so no test document is also an example.
+    Delivery notes and invoices are generated with seeds the test set does not use.
+    Receipts come from CORD train, outside the first 40 dev ids that the test set uses.
     """
     import random
 
@@ -49,6 +50,10 @@ def example_set() -> list[tuple[str, Image.Image]]:
     for i in range(20):
         labels, _ = _invoice(rng, i)
         examples.append(("invoice", _render(labels, rng, title="FACTURA", prices=True)))
+    from evals.datasets.cord import get_row
+
+    ids = CORD_EXAMPLES.read_text(encoding="utf-8").split()
+    examples += [("receipt", get_row(row_id)["image"]) for row_id in ids]
     return examples
 
 
