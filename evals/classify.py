@@ -25,6 +25,31 @@ TYPES_FILE = REPO_ROOT / "configs" / "document_types.yaml"
 CORD_DEV = REPO_ROOT / "evals" / "splits" / "cord_dev.txt"
 CLASSES = ["receipt", "invoice", "delivery_note"]
 NONE = "none"
+TRANSCRIBE = "Transcribe all the text in this document, in reading order, as plain text. Output only the text, nothing else."
+
+
+def example_set() -> list[tuple[str, Image.Image]]:
+    """Typed examples for the similarity method: untitled delivery notes and titled invoices.
+
+    They are generated here, with seeds that are not used by the test set,
+    so no test document is also an example.
+    """
+    import random
+
+    from evals.datasets.synthetic_invoices import _invoice, _render
+
+    examples: list[tuple[str, Image.Image]] = []
+    rng = random.Random(3)
+    for i in range(20):
+        labels, _ = _invoice(rng, i)
+        for key in ("subtotal", "tax", "total"):
+            labels[key] = None
+        examples.append(("delivery_note", _render(labels, rng, title=None, prices=False)))
+    rng = random.Random(4)
+    for i in range(20):
+        labels, _ = _invoice(rng, i)
+        examples.append(("invoice", _render(labels, rng, title="FACTURA", prices=True)))
+    return examples
 
 
 def class_scores(pairs: list[tuple[str, str | None]], classes: list[str]) -> dict[str, Score]:
@@ -85,12 +110,22 @@ def main() -> None:
     from midp.gemini import DEFAULT_MODEL, gemini_model
 
     parser = argparse.ArgumentParser(prog="evals.classify")
+    parser.add_argument("--method", default="model", choices=["model", "similarity"],
+                        help="model: the app's TypeClassifier; similarity: nearest typed examples (k=3)")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="model name")
     parser.add_argument("--limit", type=int, default=None, help="classify only the first N documents of the test set")
     args = parser.parse_args()
 
-    types = load_document_types(TYPES_FILE)
-    classifier = TypeClassifier(model=gemini_model(args.model), types=types)
+    if args.method == "model":
+        types = load_document_types(TYPES_FILE)
+        classifier = TypeClassifier(model=gemini_model(args.model), types=types)
+    else:
+        from midp.predictors import _png_bytes
+        from midp.similarity import SimilarityClassifier, gemini_embedder
+
+        model = gemini_model(args.model)
+        transcribe = lambda image: model(_png_bytes(image), TRANSCRIBE)
+        classifier = SimilarityClassifier(transcribe=transcribe, embed=gemini_embedder(), examples=example_set(), k=3)
     items = test_set()
     if args.limit is not None:
         items = items[: args.limit]
@@ -106,7 +141,7 @@ def main() -> None:
     scores = class_scores(pairs, CLASSES)
     matrix = confusion(pairs, CLASSES)
 
-    print(f"model: {args.model}, documents: {len(rows)}, accuracy: {sum(t == p for t, p in pairs) / len(pairs):.3f}")
+    print(f"method: {args.method}, model: {args.model}, documents: {len(rows)}, accuracy: {sum(t == p for t, p in pairs) / len(pairs):.3f}")
     print(f"review rate (not typed): {review_rate(pairs):.3f}\n")
     print(f"{'type':15} {'tp':>4} {'fp':>4} {'fn':>4}  precision  recall      f1")
     for c in CLASSES:
@@ -119,11 +154,12 @@ def main() -> None:
 
     RUNS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out = RUNS_DIR / f"{stamp}-classify-{args.model}.json"
+    out = RUNS_DIR / f"{stamp}-classify-{args.method}-{args.model}.json"
     out.write_text(
         json.dumps(
             {
                 "task": "classify",
+                "method": args.method,
                 "model": args.model,
                 "documents": len(rows),
                 "review_rate": review_rate(pairs),
