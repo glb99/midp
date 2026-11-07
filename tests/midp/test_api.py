@@ -8,7 +8,13 @@ from PIL import Image
 
 from midp.api import app, get_classifier, get_predictors, get_repository
 from midp.classifier import Classification
+from midp.db import SQLModel, make_engine
 from midp.repository import ReceiptRepository
+
+
+def repository_at(path: Path) -> ReceiptRepository:
+    SQLModel.metadata.create_all(make_engine(f"sqlite:///{path}"))
+    return ReceiptRepository(f"sqlite:///{path}")
 
 
 class FixedPredictor:
@@ -39,7 +45,7 @@ def client(tmp_path: Path):
     app.dependency_overrides[get_predictors] = lambda: {
         name: FixedPredictor() for name in ("receipt", "invoice", "delivery_note")
     }
-    app.dependency_overrides[get_repository] = lambda: ReceiptRepository(tmp_path / "test.sqlite3")
+    app.dependency_overrides[get_repository] = lambda: repository_at(tmp_path / "test.sqlite3")
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -63,7 +69,7 @@ def test_extract_classifies_then_returns_the_type_and_its_fields(client: TestCli
 
 def test_an_image_of_an_unknown_type_is_stored_without_fields(tmp_path: Path) -> None:
     app.dependency_overrides[get_classifier] = lambda: FixedClassifier(None)
-    app.dependency_overrides[get_repository] = lambda: ReceiptRepository(tmp_path / "unknown.sqlite3")
+    app.dependency_overrides[get_repository] = lambda: repository_at(tmp_path / "unknown.sqlite3")
     client = TestClient(app)
 
     response = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")})
@@ -176,7 +182,7 @@ def test_a_document_that_fails_its_type_checks_is_marked_for_review(tmp_path: Pa
 
     app.dependency_overrides[get_classifier] = lambda: FixedClassifier("invoice")
     app.dependency_overrides[get_predictors] = lambda: {"invoice": InvoiceWithoutTax()}
-    app.dependency_overrides[get_repository] = lambda: ReceiptRepository(tmp_path / "review.sqlite3")
+    app.dependency_overrides[get_repository] = lambda: repository_at(tmp_path / "review.sqlite3")
     client = TestClient(app)
 
     response = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")})

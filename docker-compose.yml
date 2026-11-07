@@ -1,0 +1,20 @@
+services:
+  postgres:
+    # pgvector is included, so the embedding table can be added later without a new image
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: midp
+      POSTGRES_PASSWORD: local-dev-only
+      POSTGRES_DB: midp
+    ports:
+      - "5432:5432"
+    volumes:
+      - midp_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U midp -d midp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  midp_postgres:

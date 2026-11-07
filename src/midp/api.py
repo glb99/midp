@@ -17,6 +17,7 @@ rule flags it: those were measured and do not separate the errors.
 
 from __future__ import annotations
 
+import os
 import time
 from decimal import Decimal
 from functools import lru_cache
@@ -34,7 +35,7 @@ from midp.review import review_document
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TYPES_FILE = REPO_ROOT / "configs" / "document_types.yaml"
-DATABASE_FILE = REPO_ROOT / "data" / "midp.sqlite3"
+DATABASE_URL = os.environ.get("MIDP_DATABASE_URL", f"sqlite:///{REPO_ROOT / 'data' / 'midp.sqlite3'}")
 ACCEPTED_TYPES = {"image/png", "image/jpeg"}
 
 app = FastAPI(title="midp")
@@ -79,7 +80,7 @@ def get_type_configs() -> dict[str, dict]:
 
 @lru_cache
 def get_repository() -> ReceiptRepository:
-    return ReceiptRepository(DATABASE_FILE)
+    return ReceiptRepository(DATABASE_URL)
 
 
 def _jsonable(value: Any) -> Any:
