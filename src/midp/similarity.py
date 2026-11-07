@@ -29,17 +29,38 @@ class SimilarityClassifier:
         self._vectors = embed([self._transcribe(image) for _, image in examples])
         self._k = k
 
-    def classify(self, image: Any) -> Classification:
-        vector = self._embed([self._transcribe(image)])[0]
-        similarities = self._vectors @ vector
+    def _score(self, image: Any) -> tuple[str, np.ndarray, np.ndarray]:
+        text = self._transcribe(image)
+        vector = self._embed([text])[0]
+        return text, vector, self._vectors @ vector
+
+    def inspect(self, image: Any) -> dict[str, Any]:
+        """Everything about one decision: text, vector, best similarity per type, margin, winner."""
+        text, vector, similarities = self._score(image)
         top = np.argsort(-similarities)[: self._k]
         votes = Counter(self._labels[i] for i in top)
         best_count = max(votes.values())
         winners = [label for label, count in votes.items() if count == best_count]
         # on a tie, the winner is the type of the single closest example among the tied types
         winner = max(winners, key=lambda label: max(similarities[i] for i in top if self._labels[i] == label))
-        return Classification(document_type=winner, confidence=float(similarities[top[0]]))
+        best_per_type = {
+            label: float(max(similarities[i] for i, l in enumerate(self._labels) if l == label))
+            for label in dict.fromkeys(self._labels)
+        }
+        ranked = sorted(best_per_type.values(), reverse=True)
+        margin = ranked[0] - ranked[1] if len(ranked) > 1 else None
+        return {
+            "document_type": winner,
+            "confidence": float(similarities[top[0]]),
+            "text": text,
+            "vector": vector.tolist(),
+            "best_per_type": best_per_type,
+            "margin": margin,
+        }
 
+    def classify(self, image: Any) -> Classification:
+        decision = self.inspect(image)
+        return Classification(document_type=decision["document_type"], confidence=decision["confidence"])
 
 EMBEDDING_MODEL = "gemini-embedding-001"
 
@@ -65,3 +86,13 @@ def gemini_embedder() -> Embed:
         return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
     return embed
+
+
+def load_similarity_config(path) -> dict:
+    """The method's settings: k, how many examples vote."""
+    from pathlib import Path
+
+    import yaml
+
+    config = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    return {"k": int(config["k"])}

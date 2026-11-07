@@ -1,0 +1,6 @@
+# The similarity method: how many nearest examples vote.
+# No review margin: the margin and the absolute similarity were measured
+# (runs/20261106-194127) and do not separate the wrong decisions. Documents
+# that the method gets wrong are documented as a known limitation, not flagged.
+method: similarity
+k: 3

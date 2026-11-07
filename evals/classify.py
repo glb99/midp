@@ -126,22 +126,37 @@ def main() -> None:
         classifier = TypeClassifier(model=gemini_model(args.model), types=types)
     else:
         from midp.predictors import _png_bytes
-        from midp.similarity import SimilarityClassifier, gemini_embedder
+        from midp.similarity import (
+            SimilarityClassifier,
+            gemini_embedder,
+            load_similarity_config,
+        )
 
         model = gemini_model(args.model)
         transcribe = lambda image: model(_png_bytes(image), TRANSCRIBE)
-        classifier = SimilarityClassifier(transcribe=transcribe, embed=gemini_embedder(), examples=example_set(), k=3)
+        settings = load_similarity_config(REPO_ROOT / "configs" / "similarity.yaml")
+        classifier = SimilarityClassifier(
+            transcribe=transcribe, embed=gemini_embedder(), examples=example_set(), k=settings["k"]
+        )
     items = test_set()
     if args.limit is not None:
         items = items[: args.limit]
 
+    details: list[dict] = []
     with ThreadPoolExecutor(max_workers=16) as pool:
-        outcomes = list(pool.map(lambda item: classifier.classify(item[2]), items))
+        if args.method == "similarity":
+            details = list(pool.map(lambda item: classifier.inspect(item[2]), items))
+            outcomes = [type("Outcome", (), {"document_type": d["document_type"], "confidence": d["confidence"]})() for d in details]
+        else:
+            outcomes = list(pool.map(lambda item: classifier.classify(item[2]), items))
 
     rows = [
         {"id": item[0], "true": item[1], "predicted": o.document_type, "confidence": o.confidence}
         for item, o in zip(items, outcomes)
     ]
+    if details:
+        for row, d in zip(rows, details):
+            row.update({"text": d["text"], "vector": d["vector"], "best_per_type": d["best_per_type"], "margin": d["margin"]})
     pairs = [(r["true"], r["predicted"]) for r in rows]
     scores = class_scores(pairs, CLASSES)
     matrix = confusion(pairs, CLASSES)
@@ -175,6 +190,10 @@ def main() -> None:
                 },
                 "confusion": {f"{t}->{p}": n for (t, p), n in matrix.items()},
                 "predictions": rows,
+                "examples": (
+                    [{"type": label, "vector": vec} for label, vec in zip(classifier._labels, classifier._vectors.tolist())]
+                    if args.method == "similarity" else []
+                ),
             },
             ensure_ascii=False,
             indent=1,

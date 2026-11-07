@@ -9,9 +9,10 @@ without fields, so a reviewer can still see it.
 
 Known limitation: a delivery note with no title can be read as an invoice.
 Its `document_type` is then "invoice", which is provisional. The invoice
-checks flag it for review (missing tax and total), but the fields returned
-for it are not real: the model fills in prices the document does not show.
-Do not treat such a result as validated.
+checks flag it only when a required field is missing; otherwise the fields
+returned for it are not real (the model fills in prices the document does
+not show). Do not treat such a result as validated. No similarity or margin
+rule flags it: those were measured and do not separate the errors.
 """
 
 from __future__ import annotations
@@ -26,10 +27,10 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
-from midp.checks import check_result
 from midp.classifier import TypeClassifier
 from midp.config import load_document_types, load_type_config
 from midp.repository import ReceiptRepository, apply_corrections
+from midp.review import review_document
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TYPES_FILE = REPO_ROOT / "configs" / "document_types.yaml"
@@ -149,12 +150,7 @@ def extract(
     classification = classifier.classify(image)
     document_type = classification.document_type
     if document_type is None:
-        result: dict[str, Any] = {
-            "document_type": None,
-            "confidence": classification.confidence,
-            "needs_review": True,
-            "problems": ["the type is unknown or not certain"],
-        }
+        result: dict[str, Any] = {"document_type": None, "confidence": classification.confidence}
         model = "none"
     else:
         predictor = predictors[document_type]
@@ -163,10 +159,11 @@ def extract(
             "confidence": classification.confidence,
             **_jsonable(predictor.predict(image)),
         }
-        problems = check_result(result, type_configs[document_type].get("checks", {}))
-        result["needs_review"] = bool(problems)
-        result["problems"] = problems
         model = predictor.model_name
+    checks = type_configs[document_type].get("checks", {}) if document_type else {}
+    needs_review, problems = review_document(result, checks)
+    result["needs_review"] = needs_review
+    result["problems"] = problems
     seconds = round(time.perf_counter() - started, 3)
     receipt_id = repository.save(
         image=data,
