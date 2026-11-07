@@ -98,11 +98,15 @@ def _cord_images(n: int = 40) -> list[tuple[str, str, Image.Image]]:
     return [(f"cord/{row_id}", "receipt", get_row(row_id)["image"]) for row_id in ids]
 
 
-def test_set() -> list[tuple[str, str, Image.Image]]:
+def test_set(base: str = "data") -> list[tuple[str, str, Image.Image]]:
+    """The test set. base="data" uses the clean synthetic images; base="data/synthetic_scanned" the scan-like copies.
+
+    CORD receipts are real photos and are the same in both.
+    """
     return (
-        _labelled_images("data/synthetic_delivery_notes", "delivery_note")
-        + _labelled_images("data/synthetic_delivery_notes_untitled", "delivery_note")
-        + _labelled_images("data/synthetic_invoices", "invoice")
+        _labelled_images(f"{base}/synthetic_delivery_notes", "delivery_note")
+        + _labelled_images(f"{base}/synthetic_delivery_notes_untitled", "delivery_note")
+        + _labelled_images(f"{base}/synthetic_invoices", "invoice")
         + _cord_images()
     )
 
@@ -119,6 +123,7 @@ def main() -> None:
                         help="model: the app's TypeClassifier; similarity: nearest typed examples (k=3)")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="model name")
     parser.add_argument("--limit", type=int, default=None, help="classify only the first N documents of the test set")
+    parser.add_argument("--set", default="clean", choices=["clean", "scanned"], help="clean synthetic images, or scan-like copies")
     args = parser.parse_args()
 
     if args.method == "model":
@@ -138,7 +143,7 @@ def main() -> None:
         classifier = SimilarityClassifier(
             transcribe=transcribe, embed=gemini_embedder(), examples=example_set(), k=settings["k"]
         )
-    items = test_set()
+    items = test_set("data/synthetic_scanned" if args.set == "scanned" else "data")
     if args.limit is not None:
         items = items[: args.limit]
 
@@ -161,7 +166,7 @@ def main() -> None:
     scores = class_scores(pairs, CLASSES)
     matrix = confusion(pairs, CLASSES)
 
-    print(f"method: {args.method}, model: {args.model}, documents: {len(rows)}, accuracy: {sum(t == p for t, p in pairs) / len(pairs):.3f}")
+    print(f"set: {args.set}, method: {args.method}, model: {args.model}, documents: {len(rows)}, accuracy: {sum(t == p for t, p in pairs) / len(pairs):.3f}")
     print(f"review rate (not typed): {review_rate(pairs):.3f}\n")
     print(f"{'type':15} {'tp':>4} {'fp':>4} {'fn':>4}  precision  recall      f1")
     for c in CLASSES:
@@ -174,11 +179,12 @@ def main() -> None:
 
     RUNS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out = RUNS_DIR / f"{stamp}-classify-{args.method}-{args.model}.json"
+    out = RUNS_DIR / f"{stamp}-classify-{args.set}-{args.method}-{args.model}.json"
     out.write_text(
         json.dumps(
             {
                 "task": "classify",
+                "set": args.set,
                 "method": args.method,
                 "model": args.model,
                 "documents": len(rows),

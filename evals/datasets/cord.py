@@ -4,6 +4,11 @@ Run by hand. Tests and CI never call this module's download path.
 
     uv run python -m evals.datasets.cord download --revision <full commit SHA>
     uv run python -m evals.datasets.cord freeze
+    uv run python -m evals.datasets.cord export-images
+
+Images are read from the parquet files. export-images writes them once to
+data/cord_images/ as <id>.png, so they can be opened by hand. The parquet
+stays the source of truth; the folder is a cache, outside git.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data" / "cord"
 SPLITS_DIR = REPO_ROOT / "evals" / "splits"
 REVISION_FILE = DATA_DIR / "REVISION"
+IMAGES_DIR = REPO_ROOT / "data" / "cord_images"
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -36,6 +42,24 @@ def download(revision: str) -> None:
     REVISION_FILE.write_text(revision + "\n", encoding="utf-8")
     for name, split in dataset.items():
         print(f"{name}: {len(split)} documents")
+
+
+def image_path(row_id: str) -> Path:
+    """Where the exported image of a row lives, such as data/cord_images/train-00019.png."""
+    return IMAGES_DIR / f"{row_id}.png"
+
+
+def export_images() -> int:
+    """Write every row's image to data/cord_images/, skipping the ones already there."""
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    written = 0
+    for split in ("train", "validation", "test"):
+        for index, row in enumerate(load(split)):
+            path = image_path(f"{split}-{index:05d}")
+            if not path.exists():
+                row["image"].save(path)
+                written += 1
+    return written
 
 
 def get_row(row_id: str) -> dict:
@@ -201,12 +225,15 @@ def main() -> None:
     fetch = commands.add_parser("download", help="download CORD at a pinned revision")
     fetch.add_argument("--revision", required=True, help="full commit SHA on Hugging Face")
     commands.add_parser("freeze", help="write dev and test id lists")
+    commands.add_parser("export-images", help="write every image to data/cord_images/ once")
     args = parser.parse_args()
 
     if args.command == "download":
         download(args.revision)
     elif args.command == "freeze":
         freeze()
+    elif args.command == "export-images":
+        print(f"exported {export_images()} images to {IMAGES_DIR}")
 
 
 if __name__ == "__main__":
