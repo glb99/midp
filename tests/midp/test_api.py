@@ -5,16 +5,18 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
+from sqlmodel import Session, SQLModel
 
 from midp.api import app, get_classifier, get_predictors, get_repository
 from midp.classifier import Classification
-from midp.db import SQLModel, make_engine
+from midp.db import make_engine
 from midp.repository import ReceiptRepository
 
 
 def repository_at(path: Path) -> ReceiptRepository:
-    SQLModel.metadata.create_all(make_engine(f"sqlite:///{path}"))
-    return ReceiptRepository(f"sqlite:///{path}")
+    engine = make_engine(f"sqlite:///{path}")
+    SQLModel.metadata.create_all(engine)
+    return ReceiptRepository(Session(engine))
 
 
 class FixedPredictor:

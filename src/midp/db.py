@@ -34,4 +34,6 @@ class CorrectionRow(SQLModel, table=True):
 
 
 def make_engine(url: str):
-    return create_engine(url, pool_pre_ping=True)
+    # SQLite refuses a connection used from another thread; FastAPI runs endpoints in threads
+    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    return create_engine(url, pool_pre_ping=True, connect_args=connect_args)

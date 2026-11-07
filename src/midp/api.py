@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Iterator
 from decimal import Decimal
 from functools import lru_cache
 from io import BytesIO
@@ -27,9 +28,11 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
+from sqlmodel import Session
 
 from midp.classifier import TypeClassifier
 from midp.config import load_document_types, load_type_config
+from midp.db import make_engine
 from midp.repository import ReceiptRepository, apply_corrections
 from midp.review import review_document
 
@@ -79,8 +82,18 @@ def get_type_configs() -> dict[str, dict]:
 
 
 @lru_cache
-def get_repository() -> ReceiptRepository:
-    return ReceiptRepository(DATABASE_URL)
+def get_engine() -> Any:
+    return make_engine(DATABASE_URL)
+
+
+def get_session() -> Iterator[Session]:
+    """One session per request, as in orkid. Writes commit on it; the rest is closed at the end."""
+    with Session(get_engine()) as session:
+        yield session
+
+
+def get_repository(session: Annotated[Session, Depends(get_session)]) -> ReceiptRepository:
+    return ReceiptRepository(session)
 
 
 def _jsonable(value: Any) -> Any:
