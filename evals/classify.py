@@ -114,7 +114,7 @@ def test_set(base: str = "data") -> list[tuple[str, str, Image.Image]]:
 def main() -> None:
     import argparse
 
-    from midp.classifier import TypeClassifier
+    from midp.classifier import Classification, TypeClassifier
     from midp.config import load_document_types
     from midp.gemini import DEFAULT_MODEL, gemini_model
 
@@ -162,7 +162,7 @@ def main() -> None:
     with ThreadPoolExecutor(max_workers=16) as pool:
         if args.method == "similarity":
             details = list(pool.map(lambda item: classifier.inspect(item[2]), items))
-            outcomes = [type("Outcome", (), {"document_type": d["document_type"], "confidence": d["confidence"]})() for d in details]
+            outcomes = [Classification(document_type=d["document_type"], confidence=d["confidence"]) for d in details]
         else:
             outcomes = list(pool.map(lambda item: classifier.classify(item[2]), items))
 
