@@ -1,44 +1,19 @@
-from decimal import Decimal
-from io import BytesIO
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image
 from sqlmodel import Session, SQLModel
 
 from midp.api import app, get_classifier, get_predictors, get_repository
-from midp.classifier import Classification
 from midp.db import make_engine
 from midp.repository import ReceiptRepository
+from tests.fakes import FixedClassifier, FixedPredictor, png_bytes
 
 
 def repository_at(path: Path) -> ReceiptRepository:
     engine = make_engine(f"sqlite:///{path}")
     SQLModel.metadata.create_all(engine)
     return ReceiptRepository(Session(engine))
-
-
-class FixedPredictor:
-    name = "fixed"
-    model_name = "test-model"
-
-    def predict(self, image):
-        return {"lines": [], "total": Decimal(61799), "discount": Decimal(-19000)}
-
-
-class FixedClassifier:
-    def __init__(self, document_type):
-        self._classification = Classification(document_type=document_type, confidence=0.95)
-
-    def classify(self, image):
-        return self._classification
-
-
-def _png() -> bytes:
-    buffer = BytesIO()
-    Image.new("RGB", (4, 4)).save(buffer, format="PNG")
-    return buffer.getvalue()
 
 
 @pytest.fixture
@@ -53,7 +28,7 @@ def client(tmp_path: Path):
 
 
 def test_extract_classifies_then_returns_the_type_and_its_fields(client: TestClient) -> None:
-    response = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")})
+    response = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")})
 
     assert response.status_code == 200
     body = response.json()
@@ -74,7 +49,7 @@ def test_an_image_of_an_unknown_type_is_stored_without_fields(tmp_path: Path) ->
     app.dependency_overrides[get_repository] = lambda: repository_at(tmp_path / "unknown.sqlite3")
     client = TestClient(app)
 
-    response = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")})
+    response = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")})
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
@@ -84,7 +59,7 @@ def test_an_image_of_an_unknown_type_is_stored_without_fields(tmp_path: Path) ->
 
 
 def test_a_stored_receipt_can_be_read_again(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
     response = client.get(f"/receipts/{created['id']}")
 
@@ -108,7 +83,7 @@ def test_extract_refuses_files_that_are_not_images(client: TestClient) -> None:
 
 
 def test_a_correction_is_kept_apart_from_the_original_answer(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
     corrected = client.post(f"/receipts/{created['id']}/corrections", json={"total": 61800})
     body = client.get(f"/receipts/{created['id']}").json()
@@ -121,7 +96,7 @@ def test_a_correction_is_kept_apart_from_the_original_answer(client: TestClient)
 
 
 def test_a_later_correction_replaces_the_one_shown(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
     client.post(f"/receipts/{created['id']}/corrections", json={"total": 1})
     client.post(f"/receipts/{created['id']}/corrections", json={"total": 2})
 
@@ -137,7 +112,7 @@ def test_correcting_an_unknown_receipt_is_not_found(client: TestClient) -> None:
 
 
 def test_a_correction_with_an_unknown_field_is_refused(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
     response = client.post(f"/receipts/{created['id']}/corrections", json={"banana": 3})
 
@@ -146,7 +121,7 @@ def test_a_correction_with_an_unknown_field_is_refused(client: TestClient) -> No
 
 
 def test_a_correction_with_a_text_amount_is_refused(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
     response = client.post(f"/receipts/{created['id']}/corrections", json={"total": "1.591.600"})
 
@@ -154,7 +129,7 @@ def test_a_correction_with_a_text_amount_is_refused(client: TestClient) -> None:
 
 
 def test_a_correction_to_a_line_is_checked_too(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")}).json()
+    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
     good = client.post(
         f"/receipts/{created['id']}/corrections",
@@ -187,7 +162,7 @@ def test_a_document_that_fails_its_type_checks_is_marked_for_review(tmp_path: Pa
     app.dependency_overrides[get_repository] = lambda: repository_at(tmp_path / "review.sqlite3")
     client = TestClient(app)
 
-    response = client.post("/receipts/extract", files={"file": ("r.png", _png(), "image/png")})
+    response = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")})
 
     app.dependency_overrides.clear()
     result = response.json()["result"]
