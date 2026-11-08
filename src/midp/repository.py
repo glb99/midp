@@ -18,7 +18,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from midp.db import CorrectionRow, ReceiptRow
+from midp.db import CorrectionRow, ExampleRow, ReceiptRow
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,25 @@ class ReceiptRepository:
             result=row.result,
             corrections=[c.fields for c in corrections],
         )
+
+
+class ExampleRepository:
+    """Typed examples and their embeddings, searched by cosine similarity with pgvector."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, *, document_type: str, text: str, embedding: list[float]) -> int:
+        row = ExampleRow(document_type=document_type, text=text, embedding=embedding)
+        self._session.add(row)
+        self._session.commit()
+        return row.id
+
+    def nearest(self, embedding: list[float], k: int) -> list[tuple[str, float]]:
+        """The k examples most similar to the vector, as (document_type, cosine similarity), most similar first."""
+        distance = ExampleRow.embedding.cosine_distance(embedding)
+        rows = self._session.exec(select(ExampleRow.document_type, distance).order_by(distance).limit(k)).all()
+        return [(document_type, 1.0 - float(d)) for document_type, d in rows]
 
 
 def apply_corrections(result: dict, corrections: list[dict]) -> dict:

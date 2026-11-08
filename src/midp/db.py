@@ -8,8 +8,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, Column, LargeBinary
 from sqlmodel import Field, SQLModel, create_engine
+
+# gemini-embedding-001 returns vectors of this length by default
+EMBEDDING_DIMENSIONS = 3072
 
 
 class ReceiptRow(SQLModel, table=True):
@@ -31,6 +35,17 @@ class CorrectionRow(SQLModel, table=True):
     receipt_id: str = Field(foreign_key="receipts.id", index=True)
     created_at: str
     fields: dict[str, Any] = Field(sa_column=Column(JSON, nullable=False))
+
+
+class ExampleRow(SQLModel, table=True):
+    """A typed example for similarity classification: its transcribed text and its embedding."""
+
+    __tablename__ = "examples"
+
+    id: int | None = Field(default=None, primary_key=True)
+    document_type: str = Field(index=True)
+    text: str
+    embedding: list[float] = Field(sa_column=Column(Vector(EMBEDDING_DIMENSIONS), nullable=False))
 
 
 def make_engine(url: str):
