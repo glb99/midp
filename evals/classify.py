@@ -120,7 +120,8 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(prog="evals.classify")
     parser.add_argument("--method", default="model", choices=["model", "similarity"],
-                        help="model: the app's TypeClassifier; similarity: nearest typed examples (k=3)")
+                        help="model: the app's TypeClassifier; similarity: nearest typed examples from the "
+                             "examples table in MIDP_DATABASE_URL (k=3)")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="model name")
     parser.add_argument("--limit", type=int, default=None, help="classify only the first N documents of the test set")
     parser.add_argument("--set", default="clean", choices=["clean", "scanned"], help="clean synthetic images, or scan-like copies")
@@ -130,19 +131,29 @@ def main() -> None:
         types = load_document_types(TYPES_FILE)
         classifier = TypeClassifier(model=gemini_model(args.model), types=types)
     else:
+        import os
+
+        from sqlmodel import Session
+
+        from midp.db import make_engine
         from midp.predictors import _png_bytes
+        from midp.repository import ExampleRepository
         from midp.similarity import (
             SimilarityClassifier,
             gemini_embedder,
             load_similarity_config,
         )
 
+        engine = make_engine(os.environ["MIDP_DATABASE_URL"])
+
+        def nearest(vector: list[float], k: int) -> list[tuple[str, float]]:
+            with Session(engine) as session:
+                return ExampleRepository(session).nearest(vector, k)
+
         model = gemini_model(args.model)
-        transcribe = lambda image: model(_png_bytes(image), TRANSCRIBE)
+        transcribe = lambda image: model(_png_bytes(image), TRANSCRIBE, mime_type="text/plain")
         settings = load_similarity_config(REPO_ROOT / "configs" / "similarity.yaml")
-        classifier = SimilarityClassifier(
-            transcribe=transcribe, embed=gemini_embedder(), examples=example_set(), k=settings["k"]
-        )
+        classifier = SimilarityClassifier(transcribe=transcribe, embed=gemini_embedder(), nearest=nearest, k=settings["k"])
     items = test_set("data/synthetic_scanned" if args.set == "scanned" else "data")
     if args.limit is not None:
         items = items[: args.limit]
@@ -161,7 +172,7 @@ def main() -> None:
     ]
     if details:
         for row, d in zip(rows, details):
-            row.update({"text": d["text"], "vector": d["vector"], "best_per_type": d["best_per_type"], "margin": d["margin"]})
+            row.update({k: v for k, v in d.items() if k not in ("document_type", "confidence")})
     pairs = [(r["true"], r["predicted"]) for r in rows]
     scores = class_scores(pairs, CLASSES)
     matrix = confusion(pairs, CLASSES)
@@ -196,10 +207,6 @@ def main() -> None:
                 },
                 "confusion": {f"{t}->{p}": n for (t, p), n in matrix.items()},
                 "predictions": rows,
-                "examples": (
-                    [{"type": label, "vector": vec} for label, vec in zip(classifier._labels, classifier._vectors.tolist())]
-                    if args.method == "similarity" else []
-                ),
             },
             ensure_ascii=False,
             indent=1,

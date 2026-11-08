@@ -31,7 +31,8 @@ def gemini_model(model: str = DEFAULT_MODEL):
     usage: Counter[str] = Counter()
     lock = threading.Lock()
 
-    def call(image: bytes, prompt: str) -> str:
+    def call(image: bytes, prompt: str, mime_type: str = "application/json") -> str:
+        """The model's answer to the prompt about the image: JSON by default, or plain text with mime_type="text/plain"."""
         started = time.perf_counter()
         response = client.models.generate_content(
             model=model,
@@ -40,7 +41,7 @@ def gemini_model(model: str = DEFAULT_MODEL):
                 prompt,
             ],
             config=types.GenerateContentConfig(
-                response_mime_type="application/json",
+                response_mime_type=mime_type,
                 temperature=0,
             ),
         )
