@@ -46,8 +46,9 @@ def test_a_document_needing_review_is_listed_until_it_is_reviewed(client: TestCl
     assert [item["id"] for item in queue] == [document_id]
     assert "missing tax" in queue[0]["problems"]
 
-    reviewed = client.post(f"/documents/{document_id}/review")
+    reviewed = client.post(f"/documents/{document_id}/review", json={"decision": "REJECTED"})
     assert reviewed.status_code == 200
+    assert reviewed.json()["decision"] == "REJECTED"
     assert client.get("/documents/review").json() == []
 
 
@@ -58,4 +59,14 @@ def test_a_document_that_passes_its_checks_is_not_queued(client: TestClient) -> 
 
 
 def test_reviewing_an_unknown_document_is_not_found(client: TestClient) -> None:
-    assert client.post("/documents/does-not-exist/review").status_code == 404
+    response = client.post("/documents/does-not-exist/review", json={"decision": "APPROVED"})
+
+    assert response.status_code == 404
+
+
+def test_a_review_needs_a_decision_of_approved_or_rejected(client: TestClient) -> None:
+    document_id = _extract(client, "invoice", InvoiceWithoutTax())
+
+    assert client.post(f"/documents/{document_id}/review", json={}).status_code == 422
+    assert client.post(f"/documents/{document_id}/review", json={"decision": "maybe"}).status_code == 422
+    assert [item["id"] for item in client.get("/documents/review").json()] == [document_id]

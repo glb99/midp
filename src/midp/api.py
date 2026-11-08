@@ -24,10 +24,11 @@ from decimal import Decimal
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
+from pydantic import BaseModel
 from sqlmodel import Session
 
 from midp.classifier import TypeClassifier
@@ -236,13 +237,18 @@ def add_correction(
     return {"id": document_id, "correction": fields}
 
 
+class ReviewDecision(BaseModel):
+    decision: Literal["APPROVED", "REJECTED"]
+
+
 @app.post("/documents/{document_id}/review")
 def mark_reviewed(
     document_id: str,
+    review: ReviewDecision,
     repository: Annotated[DocumentRepository, Depends(get_repository)],
 ) -> dict:
-    """Close the review of a document. Corrections do not close it by themselves."""
-    reviewed_at = repository.mark_reviewed(document_id)
+    """Close the review of a document with a decision. Corrections do not close it by themselves."""
+    reviewed_at = repository.mark_reviewed(document_id, review.decision)
     if reviewed_at is None:
         raise HTTPException(status_code=404, detail="no document with that id")
-    return {"id": document_id, "reviewed_at": reviewed_at}
+    return {"id": document_id, "reviewed_at": reviewed_at, "decision": review.decision}

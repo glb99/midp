@@ -62,12 +62,13 @@ class DocumentRepository:
             ).all()
         )
 
-    def mark_reviewed(self, document_id: str) -> str | None:
-        """Close the review of a document. Returns when it was reviewed, or None if there is no such document."""
+    def mark_reviewed(self, document_id: str, decision: str) -> str | None:
+        """Close the review with a decision ("APPROVED" or "REJECTED"). Returns when it was reviewed, or None if there is no such document."""
         row = self._session.get(DocumentRow, document_id)
         if row is None:
             return None
         row.reviewed_at = datetime.now(UTC).isoformat(timespec="seconds")
+        row.review_decision = decision
         self._session.commit()
         return row.reviewed_at
 

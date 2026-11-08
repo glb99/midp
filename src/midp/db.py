@@ -28,6 +28,7 @@ class DocumentRow(SQLModel, table=True):
     result: dict[str, Any] = Field(sa_column=Column(JSON, nullable=False))
     needs_review: bool = Field(default=False, index=True)
     reviewed_at: str | None = None
+    review_decision: str | None = None  # "APPROVED" or "REJECTED", set when the review is closed
 
 
 class CorrectionRow(SQLModel, table=True):
