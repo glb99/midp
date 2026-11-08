@@ -46,10 +46,30 @@ class DocumentRepository:
                 content_type=content_type,
                 image=image,
                 result=result,
+                needs_review=bool(result.get("needs_review", False)),
             )
         )
         self._session.commit()
         return document_id
+
+    def pending_review(self) -> list[DocumentRow]:
+        """Documents marked for review that nobody has reviewed yet, oldest first."""
+        return list(
+            self._session.exec(
+                select(DocumentRow)
+                .where(DocumentRow.needs_review.is_(True), DocumentRow.reviewed_at.is_(None))
+                .order_by(DocumentRow.created_at)
+            ).all()
+        )
+
+    def mark_reviewed(self, document_id: str) -> str | None:
+        """Close the review of a document. Returns when it was reviewed, or None if there is no such document."""
+        row = self._session.get(DocumentRow, document_id)
+        if row is None:
+            return None
+        row.reviewed_at = datetime.now(UTC).isoformat(timespec="seconds")
+        self._session.commit()
+        return row.reviewed_at
 
     def exists(self, document_id: str) -> bool:
         return self._session.get(DocumentRow, document_id) is not None

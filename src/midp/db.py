@@ -26,6 +26,8 @@ class DocumentRow(SQLModel, table=True):
     content_type: str
     image: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
     result: dict[str, Any] = Field(sa_column=Column(JSON, nullable=False))
+    needs_review: bool = Field(default=False, index=True)
+    reviewed_at: str | None = None
 
 
 class CorrectionRow(SQLModel, table=True):

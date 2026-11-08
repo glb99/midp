@@ -189,6 +189,20 @@ def extract(
     return {"id": document_id, "result": result}
 
 
+@app.get("/documents/review")
+def review_queue(repository: Annotated[DocumentRepository, Depends(get_repository)]) -> list[dict]:
+    """Documents that need a person to look at them and have not been reviewed yet, oldest first."""
+    return [
+        {
+            "id": row.id,
+            "created_at": row.created_at,
+            "document_type": row.result.get("document_type"),
+            "problems": row.result.get("problems", []),
+        }
+        for row in repository.pending_review()
+    ]
+
+
 @app.get("/documents/{document_id}")
 def read_document(document_id: str, repository: Annotated[DocumentRepository, Depends(get_repository)]) -> dict:
     document = repository.get(document_id)
@@ -220,3 +234,15 @@ def add_correction(
     _check_correction(fields, document_type)
     repository.add_correction(document_id, fields)
     return {"id": document_id, "correction": fields}
+
+
+@app.post("/documents/{document_id}/review")
+def mark_reviewed(
+    document_id: str,
+    repository: Annotated[DocumentRepository, Depends(get_repository)],
+) -> dict:
+    """Close the review of a document. Corrections do not close it by themselves."""
+    reviewed_at = repository.mark_reviewed(document_id)
+    if reviewed_at is None:
+        raise HTTPException(status_code=404, detail="no document with that id")
+    return {"id": document_id, "reviewed_at": reviewed_at}
