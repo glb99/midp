@@ -1,4 +1,4 @@
-"""Database tables for receipts and their corrections, shared by the repository and Alembic.
+"""Database tables for documents and their corrections, shared by the repository and Alembic.
 
 The schema is changed only through Alembic migrations (see alembic/). The
 tests create the tables directly on a throwaway SQLite file with create_all.
@@ -16,8 +16,8 @@ from sqlmodel import Field, SQLModel, create_engine
 EMBEDDING_DIMENSIONS = 3072
 
 
-class ReceiptRow(SQLModel, table=True):
-    __tablename__ = "receipts"
+class DocumentRow(SQLModel, table=True):
+    __tablename__ = "documents"
 
     id: str = Field(primary_key=True)
     created_at: str
@@ -32,7 +32,7 @@ class CorrectionRow(SQLModel, table=True):
     __tablename__ = "corrections"
 
     id: int | None = Field(default=None, primary_key=True)
-    receipt_id: str = Field(foreign_key="receipts.id", index=True)
+    document_id: str = Field(foreign_key="documents.id", index=True)
     created_at: str
     fields: dict[str, Any] = Field(sa_column=Column(JSON, nullable=False))
 

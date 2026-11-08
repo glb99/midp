@@ -1,6 +1,6 @@
-"""Receipts repository: the image as uploaded, what the model returned, and corrections.
+"""Documents repository: the image as uploaded, what the model returned, and corrections.
 
-Two tables. `receipts` keeps one row per receipt and never changes after it is
+Two tables. `documents` keeps one row per document and never changes after it is
 saved. `corrections` keeps one row per correction, so the history is kept.
 
 The repository works on a session it is given, as orkid's repositories do.
@@ -18,11 +18,11 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from midp.db import CorrectionRow, ExampleRow, ReceiptRow
+from midp.db import CorrectionRow, DocumentRow, ExampleRow
 
 
 @dataclass(frozen=True)
-class StoredReceipt:
+class StoredDocument:
     id: str
     created_at: str
     model: str
@@ -31,15 +31,15 @@ class StoredReceipt:
     corrections: list[dict]
 
 
-class ReceiptRepository:
+class DocumentRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
     def save(self, *, image: bytes, content_type: str, model: str, seconds: float, result: dict[str, Any]) -> str:
-        receipt_id = uuid.uuid4().hex
+        document_id = uuid.uuid4().hex
         self._session.add(
-            ReceiptRow(
-                id=receipt_id,
+            DocumentRow(
+                id=document_id,
                 created_at=datetime.now(UTC).isoformat(timespec="seconds"),
                 model=model,
                 seconds=seconds,
@@ -49,29 +49,29 @@ class ReceiptRepository:
             )
         )
         self._session.commit()
-        return receipt_id
+        return document_id
 
-    def exists(self, receipt_id: str) -> bool:
-        return self._session.get(ReceiptRow, receipt_id) is not None
+    def exists(self, document_id: str) -> bool:
+        return self._session.get(DocumentRow, document_id) is not None
 
-    def add_correction(self, receipt_id: str, fields: dict[str, Any]) -> None:
+    def add_correction(self, document_id: str, fields: dict[str, Any]) -> None:
         self._session.add(
             CorrectionRow(
-                receipt_id=receipt_id,
+                document_id=document_id,
                 created_at=datetime.now(UTC).isoformat(timespec="seconds"),
                 fields=fields,
             )
         )
         self._session.commit()
 
-    def get(self, receipt_id: str) -> StoredReceipt | None:
-        row = self._session.get(ReceiptRow, receipt_id)
+    def get(self, document_id: str) -> StoredDocument | None:
+        row = self._session.get(DocumentRow, document_id)
         if row is None:
             return None
         corrections = self._session.exec(
-            select(CorrectionRow).where(CorrectionRow.receipt_id == receipt_id).order_by(CorrectionRow.id)
+            select(CorrectionRow).where(CorrectionRow.document_id == document_id).order_by(CorrectionRow.id)
         ).all()
-        return StoredReceipt(
+        return StoredDocument(
             id=row.id,
             created_at=row.created_at,
             model=row.model,

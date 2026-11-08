@@ -6,14 +6,14 @@ from sqlmodel import Session, SQLModel
 
 from midp.api import app, get_classifier, get_predictors, get_repository
 from midp.db import make_engine
-from midp.repository import ReceiptRepository
+from midp.repository import DocumentRepository
 from tests.fakes import FixedClassifier, FixedPredictor, png_bytes
 
 
-def repository_at(path: Path) -> ReceiptRepository:
+def repository_at(path: Path) -> DocumentRepository:
     engine = make_engine(f"sqlite:///{path}")
     SQLModel.metadata.create_all(engine)
-    return ReceiptRepository(Session(engine))
+    return DocumentRepository(Session(engine))
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def client(tmp_path: Path):
 
 
 def test_extract_classifies_then_returns_the_type_and_its_fields(client: TestClient) -> None:
-    response = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")})
+    response = client.post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")})
 
     assert response.status_code == 200
     body = response.json()
@@ -49,7 +49,7 @@ def test_an_image_of_an_unknown_type_is_stored_without_fields(tmp_path: Path) ->
     app.dependency_overrides[get_repository] = lambda: repository_at(tmp_path / "unknown.sqlite3")
     client = TestClient(app)
 
-    response = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")})
+    response = client.post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")})
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
@@ -58,10 +58,10 @@ def test_an_image_of_an_unknown_type_is_stored_without_fields(tmp_path: Path) ->
     assert result["needs_review"] is True
 
 
-def test_a_stored_receipt_can_be_read_again(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
+def test_a_stored_document_can_be_read_again(client: TestClient) -> None:
+    created = client.post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
-    response = client.get(f"/receipts/{created['id']}")
+    response = client.get(f"/documents/{created['id']}")
 
     assert response.status_code == 200
     body = response.json()
@@ -70,23 +70,23 @@ def test_a_stored_receipt_can_be_read_again(client: TestClient) -> None:
     assert "created_at" in body and "seconds" in body
 
 
-def test_unknown_receipt_is_not_found(client: TestClient) -> None:
-    assert client.get("/receipts/does-not-exist").status_code == 404
+def test_unknown_document_is_not_found(client: TestClient) -> None:
+    assert client.get("/documents/does-not-exist").status_code == 404
 
 
 def test_extract_refuses_files_that_are_not_images(client: TestClient) -> None:
-    wrong_type = client.post("/receipts/extract", files={"file": ("r.pdf", b"%PDF", "application/pdf")})
-    broken = client.post("/receipts/extract", files={"file": ("r.png", b"not a png", "image/png")})
+    wrong_type = client.post("/documents/extract", files={"file": ("r.pdf", b"%PDF", "application/pdf")})
+    broken = client.post("/documents/extract", files={"file": ("r.png", b"not a png", "image/png")})
 
     assert wrong_type.status_code == 415
     assert broken.status_code == 400
 
 
 def test_a_correction_is_kept_apart_from_the_original_answer(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
+    created = client.post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
-    corrected = client.post(f"/receipts/{created['id']}/corrections", json={"total": 61800})
-    body = client.get(f"/receipts/{created['id']}").json()
+    corrected = client.post(f"/documents/{created['id']}/corrections", json={"total": 61800})
+    body = client.get(f"/documents/{created['id']}").json()
 
     assert corrected.status_code == 200
     assert body["result"] == created["result"]
@@ -96,47 +96,47 @@ def test_a_correction_is_kept_apart_from_the_original_answer(client: TestClient)
 
 
 def test_a_later_correction_replaces_the_one_shown(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
-    client.post(f"/receipts/{created['id']}/corrections", json={"total": 1})
-    client.post(f"/receipts/{created['id']}/corrections", json={"total": 2})
+    created = client.post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
+    client.post(f"/documents/{created['id']}/corrections", json={"total": 1})
+    client.post(f"/documents/{created['id']}/corrections", json={"total": 2})
 
-    body = client.get(f"/receipts/{created['id']}").json()
+    body = client.get(f"/documents/{created['id']}").json()
     assert body["corrections"] == [{"total": 1}, {"total": 2}]
     assert body["final"]["total"] == 2
 
 
-def test_correcting_an_unknown_receipt_is_not_found(client: TestClient) -> None:
-    response = client.post("/receipts/does-not-exist/corrections", json={"total": 1})
+def test_correcting_an_unknown_document_is_not_found(client: TestClient) -> None:
+    response = client.post("/documents/does-not-exist/corrections", json={"total": 1})
 
     assert response.status_code == 404
 
 
 def test_a_correction_with_an_unknown_field_is_refused(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
+    created = client.post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
-    response = client.post(f"/receipts/{created['id']}/corrections", json={"banana": 3})
+    response = client.post(f"/documents/{created['id']}/corrections", json={"banana": 3})
 
     assert response.status_code == 422
     assert "unknown field: banana" in response.json()["detail"]
 
 
 def test_a_correction_with_a_text_amount_is_refused(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
+    created = client.post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
-    response = client.post(f"/receipts/{created['id']}/corrections", json={"total": "1.591.600"})
+    response = client.post(f"/documents/{created['id']}/corrections", json={"total": "1.591.600"})
 
     assert response.status_code == 422
 
 
 def test_a_correction_to_a_line_is_checked_too(client: TestClient) -> None:
-    created = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
+    created = client.post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")}).json()
 
     good = client.post(
-        f"/receipts/{created['id']}/corrections",
+        f"/documents/{created['id']}/corrections",
         json={"lines": [{"description": "Nasi", "quantity": 1, "amount": 75000}]},
     )
     bad = client.post(
-        f"/receipts/{created['id']}/corrections",
+        f"/documents/{created['id']}/corrections",
         json={"lines": [{"description": "Nasi", "amount": "75.000"}]},
     )
 
@@ -162,7 +162,7 @@ def test_a_document_that_fails_its_type_checks_is_marked_for_review(tmp_path: Pa
     app.dependency_overrides[get_repository] = lambda: repository_at(tmp_path / "review.sqlite3")
     client = TestClient(app)
 
-    response = client.post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")})
+    response = client.post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")})
 
     app.dependency_overrides.clear()
     result = response.json()["result"]

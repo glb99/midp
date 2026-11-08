@@ -4,7 +4,7 @@
 
 The test set is fixed: 40 titled delivery notes, 40 untitled delivery notes,
 40 invoices (synthetic, with known types) and 40 receipts (CORD dev). Each
-image goes through the same TypeClassifier as POST /receipts/extract. The
+image goes through the same TypeClassifier as POST /documents/extract. The
 predictions, per-type precision, recall and F1, the confusion matrix and the
 review rate (documents the classifier does not type) are saved to runs/.
 """

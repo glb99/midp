@@ -8,22 +8,22 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from midp.api import app, get_classifier, get_predictors, get_session
-from midp.db import ReceiptRow
+from midp.db import DocumentRow
 from tests.fakes import FixedClassifier, FixedPredictor, png_bytes
 
 
-def test_an_uploaded_receipt_is_stored_in_postgres(session: Session) -> None:
+def test_an_uploaded_document_is_stored_in_postgres(session: Session) -> None:
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_classifier] = lambda: FixedClassifier("receipt")
     app.dependency_overrides[get_predictors] = lambda: {"receipt": FixedPredictor()}
     try:
-        response = TestClient(app).post("/receipts/extract", files={"file": ("r.png", png_bytes(), "image/png")})
+        response = TestClient(app).post("/documents/extract", files={"file": ("r.png", png_bytes(), "image/png")})
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    receipt_id = response.json()["id"]
-    stored = session.get(ReceiptRow, receipt_id)
+    document_id = response.json()["id"]
+    stored = session.get(DocumentRow, document_id)
     assert stored is not None
     assert stored.model == "test-model"
     assert stored.result["total"] == 61799

@@ -4,7 +4,7 @@
 
 Each image is first classified against the registry of document types, then
 extracted with that type's config. The result, the image and any corrections
-are stored in SQLite under data/. An image of an unknown type is stored
+are stored in the database. An image of an unknown type is stored
 without fields, so a reviewer can still see it.
 
 Known limitation: a delivery note with no title can be read as an invoice.
@@ -33,7 +33,7 @@ from sqlmodel import Session
 from midp.classifier import TypeClassifier
 from midp.config import load_document_types, load_type_config
 from midp.db import make_engine
-from midp.repository import ReceiptRepository, apply_corrections
+from midp.repository import DocumentRepository, apply_corrections
 from midp.review import review_document
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -92,8 +92,8 @@ def get_session() -> Iterator[Session]:
         yield session
 
 
-def get_repository(session: Annotated[Session, Depends(get_session)]) -> ReceiptRepository:
-    return ReceiptRepository(session)
+def get_repository(session: Annotated[Session, Depends(get_session)]) -> DocumentRepository:
+    return DocumentRepository(session)
 
 
 def _jsonable(value: Any) -> Any:
@@ -144,13 +144,13 @@ def _check_correction(fields: dict[str, Any], document_type: str) -> None:
         raise HTTPException(status_code=422, detail=errors)
 
 
-@app.post("/receipts/extract")
+@app.post("/documents/extract")
 def extract(
     file: Annotated[UploadFile, File()],
     classifier: Annotated[Any, Depends(get_classifier)],
     predictors: Annotated[dict[str, Any], Depends(get_predictors)],
     type_configs: Annotated[dict[str, dict], Depends(get_type_configs)],
-    repository: Annotated[ReceiptRepository, Depends(get_repository)],
+    repository: Annotated[DocumentRepository, Depends(get_repository)],
 ) -> dict:
     if file.content_type not in ACCEPTED_TYPES:
         raise HTTPException(status_code=415, detail="send a PNG or JPEG image")
@@ -179,44 +179,44 @@ def extract(
     result["needs_review"] = needs_review
     result["problems"] = problems
     seconds = round(time.perf_counter() - started, 3)
-    receipt_id = repository.save(
+    document_id = repository.save(
         image=data,
         content_type=file.content_type,
         model=model,
         seconds=seconds,
         result=result,
     )
-    return {"id": receipt_id, "result": result}
+    return {"id": document_id, "result": result}
 
 
-@app.get("/receipts/{receipt_id}")
-def read_receipt(receipt_id: str, repository: Annotated[ReceiptRepository, Depends(get_repository)]) -> dict:
-    receipt = repository.get(receipt_id)
-    if receipt is None:
-        raise HTTPException(status_code=404, detail="no receipt with that id")
+@app.get("/documents/{document_id}")
+def read_document(document_id: str, repository: Annotated[DocumentRepository, Depends(get_repository)]) -> dict:
+    document = repository.get(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="no document with that id")
     return {
-        "id": receipt.id,
-        "created_at": receipt.created_at,
-        "model": receipt.model,
-        "seconds": receipt.seconds,
-        "result": receipt.result,
-        "corrections": receipt.corrections,
-        "final": apply_corrections(receipt.result, receipt.corrections),
+        "id": document.id,
+        "created_at": document.created_at,
+        "model": document.model,
+        "seconds": document.seconds,
+        "result": document.result,
+        "corrections": document.corrections,
+        "final": apply_corrections(document.result, document.corrections),
     }
 
 
-@app.post("/receipts/{receipt_id}/corrections")
+@app.post("/documents/{document_id}/corrections")
 def add_correction(
-    receipt_id: str,
+    document_id: str,
     fields: dict[str, Any],
-    repository: Annotated[ReceiptRepository, Depends(get_repository)],
+    repository: Annotated[DocumentRepository, Depends(get_repository)],
 ) -> dict:
-    receipt = repository.get(receipt_id)
-    if receipt is None:
-        raise HTTPException(status_code=404, detail="no receipt with that id")
-    document_type = receipt.result.get("document_type")
+    document = repository.get(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="no document with that id")
+    document_type = document.result.get("document_type")
     if document_type is None:
         raise HTTPException(status_code=422, detail="this document has no known type to correct against")
     _check_correction(fields, document_type)
-    repository.add_correction(receipt_id, fields)
-    return {"id": receipt_id, "correction": fields}
+    repository.add_correction(document_id, fields)
+    return {"id": document_id, "correction": fields}
